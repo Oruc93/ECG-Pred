@@ -3,6 +3,13 @@
 /mlruns/
 /Prediction-Image/
 /generate_data/data/
+/Zoom*
+/2-down*
+/Full*
+/Test*
+/train_MS.py
+/Skizze.py
+/Mittel*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

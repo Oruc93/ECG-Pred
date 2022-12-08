@@ -4,14 +4,14 @@ Here we set up loops for training and testing different setups of NN
 """
 import mlflow
 import os
-from train import train
-from train_MS import train_MS
+from train_proc import train
+# from train_MS import train_MS
 
 # Sets target file for saving runs
 # mlflow.set_tracking_uri()
 
 # Set experiment active or create new one
-experiment = mlflow.set_experiment("Test-1")
+experiment = mlflow.set_experiment("Test different losses features") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 # Starting a Run by calling train.py
@@ -25,11 +25,24 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 # NNsize: width of Input layer of NN
 # length_item: number of data points in items
 
-train(NNsize=int(2**5), 
-      total_epochs=50, 
-      length_item= int(2**11), 
-      OUTPUT_name=["lag 0", "lag 250"],# , "moving average", "lag 50"], #, "lag 100", "lag 250", "lag 500"]) # OUTPUT_name=["lag 50"], 
+train(NNsize=int(2**4), 
+      total_epochs=100, 
+      length_item= 2**15, # raise this by using generator for data input in NN. Hopefully
+      # INPUT_name = {"symbols": ["lag 0"]},
+      OUTPUT_name = {'RP': ["lag 0"]},# "BBI": ["lag 0"]},# "ECG": ["lag 0"], {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"]
       Arch = "Conv-AE-LSTM-P") # "LSTM-AE")
+
+# for N in range(16,18,1):
+#       print(N)
+#       check = "n" # Statement for while-loop, will be set by user
+#       while not(check == "y"):
+#             train(NNsize=int(2**2), 
+#                   total_epochs=50, 
+#                   length_item= 2**N, 
+#                   # INPUT_name = {"symbols": ["lag 0"]},
+#                   OUTPUT_name = {"ECG": ["lag 0"]},# {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"]
+#                   Arch = "maxKomp-Conv-AE-LSTM-P") # "LSTM-AE")
+#             check = input("Type y if LOSS is acceptable \n Press Enter to continue...")
       
 """for n in range(2**4, ):
       for l in range(2**13):

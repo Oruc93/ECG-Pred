@@ -11,7 +11,7 @@
 # Take train of Temp as template
 
 from operator import concat
-import train_lib as tl
+import train_lib_proc as tl
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
@@ -51,6 +51,7 @@ def train(total_epochs=250,
         print("\nMemorize training data ...")
         # Extracting dataset from h5 into numpy array
         data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned datasets
+        # check if RP is in list. And replace by BBI. RP is derived from BBI
         data_list = tl.unique(data_list) # sorts out multiple occurences
         data, samplerate = tl.memorize("./data/training.h5", data_list)
         
@@ -63,7 +64,7 @@ def train(total_epochs=250,
         # Extracting items from whole dataset
         X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
         print(out_types)
-        
+        # exit()
         tl.kernel_check(X) # Plots 2s snippet of ecg
         
         tl.feat_check(X,y) # Plots example of dataset and some features
@@ -75,37 +76,20 @@ def train(total_epochs=250,
         # Extracting items from whole dataset
         X_test, y_test, out_types = tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
         
-        tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
+        # tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
         mlflow.log_param("samplerate", samplerate) # samplerate in Hz
         
         # Initialize model
         print("Initializing model...")
-        if Arch == "LSTM-AE":
-            model = tl.setup_LSTM_AE(np.shape(X)[1:], NNsize, np.shape(y)[-1]) # Autoencoder branched
-            mlflow.log_param("Architecture", "Autoencoder-LSTM")  # logs type of architecture
-        elif Arch == "LSTM":
-            model = tl.setup_LSTM_nn(np.shape(X)[1:], NNsize, np.shape(y)[-1])  # LSTM
-            mlflow.log_param("Architecture", "LSTM")  # logs type of architecture
-        elif Arch == "Conv-AE-LSTM-P":
-            model = tl.setup_Conv_AE_LSTM_P(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
+        if Arch == "Conv-AE-LSTM-P":
+            model, ds_samplerate = tl.setup_Conv_AE_LSTM_P((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "Conv-AE-LSTM-P")  # logs type of architecture
+            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
         elif Arch == "maxKomp-Conv-AE-LSTM-P":
             model, ds_samplerate = tl.setup_maxKomp_Conv_AE_LSTM_P(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "maxKomp-Conv-AE-LSTM-P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
-        elif Arch == "Conv-AE":
-            model = tl.setup_Conv_AE(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
-            mlflow.log_param("Architecture", "Conv-AE")  # logs type of architecture
-        elif Arch == "Conv-AE-Dense":
-            model = tl.setup_Conv_AE_Dense(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
-            mlflow.log_param("Architecture", "Conv-AE-Dense")  # logs type of architecture
-        """elif Arch == "Conv-E-LSTM-P":
-            model, model_latent = tl.setup_Conv_DS_Dense_E_LSTM_P(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
-            mlflow.log_param("Architecture", "Conv-E-LSTM-P")  # logs type of architecture"""
-        """elif Arch == "Conv_DS_Dense_E_LSTM_P":
-            model, encoder = tl.setup_Conv_DS_Dense_E_LSTM_P(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
-            mlflow.log_param("Architecture", "Conv_DS_Dense_E_LSTM_P")  # logs type of architecture"""
-        
+
         # print(np.shape(X)[1:])
         model.summary()
         tl.draw_model(model)
@@ -114,12 +98,20 @@ def train(total_epochs=250,
         
         # Compile model
         print("Compiling model...")
-        model.compile(loss= tl.my_loss_fn, # Loss-Funktion
+        model.compile(loss= {
+            # "ECG_output": tl.ECG_loss,
+            # "BBI_output": tl.BBI_loss
+            "RP_output": tl.RP_loss
+            },# Loss-Funktion
                     optimizer='Adam',
-                    metrics='MAE')
+                    metrics={
+            # "ECG_output": 'MAE',
+            # "BBI_output": 'MAE'
+            "RP_output": 'binary_accuracy'
+            })
         
         # Callback
-        escb = EarlyStopping(monitor='MAE', patience=int(total_epochs/2), min_delta=0.001, mode="min")
+        escb = EarlyStopping(monitor='binary_accuracy', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'ECG_output_MAE'
         
         # Train model on training set
         print("Training model...")
@@ -128,6 +120,14 @@ def train(total_epochs=250,
                 batch_size=int(np.shape(X)[0] / 10), # how many samples to pass to our model at a time
                 callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
+        
+        # tl.save_XY(X,y)
+        # training_generator = tl.DataGenerator(X, y, length_item=length_item, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name)
+        # model.fit_generator(generator=training_generator,
+        #                     callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
+        #                     epochs=total_epochs
+        #                     )
+
         
         # Evaluate trained model
         print("Evaluating model...")
@@ -142,18 +142,21 @@ def train(total_epochs=250,
         """if len(np.shape(y_pred))==4: # if model output has 4 dimension. Correct it to 3
             y_pred = y_pred[0,:,:,:]
             print(np.shape(y_pred))"""
-        print(np.shape(y_test))
+        # print(np.shape(y_test))
         
         """np.save("./X_test", X_test) # Saving output in a file for later use
         np.save("./y_test", y_test)
         np.save("./y_pred", y_pred)"""
         
-        example = np.random.randint(len(y_test[:,0,0]))
+        if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
+            y_pred = [y_pred]
+        
+        example = np.random.randint(len(y_test[0][:,0]))
         plt.figure(1)
         plt.title("Full plot Truth and Pred of column 0")
-        plt.plot(list(range(len(y_test[0,:,0]))), y_test[example,:,0])
-        plt.plot(list(range(len(y_pred[0,:,0]))), y_pred[example,:,0])
-        plt.plot(list(range(len(X_test[0,:,0]))), X_test[example,:,0])
+        plt.plot(list(range(len(y_test[0][0,:]))), y_test[0][example,:])
+        plt.plot(list(range(len(y_pred[0][0,:]))), y_pred[0][example,:])
+        plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
         plt.legend(["y_test", "y_pred", "X_test"])
         plt.savefig("Full-Plot col 0")
         # while loop for saving image
@@ -171,17 +174,18 @@ def train(total_epochs=250,
         plt.close()
         
         # Preparation of output if classification of symbols and words was done
-        if "classification" in out_types or "dsitribution" in out_types:
+        if "classificationS" in out_types or "distributionW" in out_types:
             y_pred, dist_pred = tl.index(y_pred)
             y_test, dist_test = tl.index(y_test)
             print("Shape of final Output array: ", np.shape(y_test))
             
-        for k in range(len(y_pred[0,0,:])):
-            plt.figure(k+2)
+        for k in range(len(y_pred)):
+            plt.figure(k)
             plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
-            plt.plot(list(range(len(y_test[0,-2*samplerate:,k]))), y_test[example,-2*samplerate:,k])
-            plt.plot(list(range(len(y_pred[0,-2*samplerate:,k]))), y_pred[example,-2*samplerate:,k])
-            plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
+            plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
+            plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
+            if "ECG" in out_types[k]:
+                plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
             plt.legend(["y_Test", "Prediction", "X_Test"])
             name = concat("./ZoomPlot-Col-",str(k))
             plt.savefig(name)
@@ -191,7 +195,7 @@ def train(total_epochs=250,
             plt.close()
         
         # Plot of classification of symbols and words output
-        if "classification" in out_types or "dsitribution" in out_types:
+        if "classificationS" in out_types or "distributionW" in out_types:
             print("Shape of hist", np.shape(dist_pred))
             # in our case we have four symbols in words of three
             plt.figure(1)
@@ -207,5 +211,18 @@ def train(total_epochs=250,
             mlflow.log_artifact(path_fig)  # links plot to MLFlow run
             plt.close()
             
-        
+        # Plot multiple examples
+        for l in range(10):
+            example = np.random.randint(len(y_test[0][:,0]))
+            for k in range(len(y_pred)):
+                plt.figure(k)
+                plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
+                plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
+                plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
+                if "ECG" in out_types[k]:
+                    plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
+                plt.legend(["y_Test", "Prediction", "X_Test"])
+                name = "./ZoomPlot-Col-" + str(k) + "-example-" + str(l)
+                plt.savefig(name)
+                plt.close()
         
