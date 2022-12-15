@@ -61,6 +61,10 @@ for ii = 1:amount
         r_peaks_ms = r_peaks_index/sfecg_syn*1000; % transform indices into ms
         BBI = r_peaks_ms(2:end) - r_peaks_ms(1:end-1); % calculate BBI in ms
         
+        % Upsample ipeaks to same samplerate as Fabians Methode
+        % by inserting zeros
+        ipeaks = upsample(ipeaks,sfecg/sfecg_syn);
+
         % Fabians method
         % Bachelor thesis Fabian Chapter 2.3
         % Fit heartbeat snippets onto BBI vector
@@ -154,7 +158,7 @@ for ii = 1:amount
     fclose(fileID);
 
     fileID = fopen(name_ipeaks,'a');
-    fwrite(fileID, t(1:ecg_duration)', 'int');
+    fwrite(fileID, ipeaks(1:ecg_duration)', 'int');
     fclose(fileID);
 
     fileID = fopen(name_BBI,'a'); % opens with access type append

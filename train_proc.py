@@ -86,7 +86,7 @@ def train(total_epochs=250,
             mlflow.log_param("Architecture", "Conv-AE-LSTM-P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
         elif Arch == "maxKomp-Conv-AE-LSTM-P":
-            model, ds_samplerate = tl.setup_maxKomp_Conv_AE_LSTM_P(np.shape(X)[1:], NNsize, np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
+            model, ds_samplerate = tl.setup_maxKomp_Conv_AE_LSTM_P(np.shape(X)[1:], np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "maxKomp-Conv-AE-LSTM-P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
 
@@ -99,19 +99,21 @@ def train(total_epochs=250,
         # Compile model
         print("Compiling model...")
         model.compile(loss= {
-            # "ECG_output": tl.ECG_loss,
-            # "BBI_output": tl.BBI_loss
-            "RP_output": tl.RP_loss
-            },# Loss-Funktion
+                        "Tachy_output": tl.ECG_loss,
+                        # "ECG_output": tl.ECG_loss,
+                        # "BBI_output": tl.BBI_loss
+                        # "RP_output": tl.RP_loss
+                        },# Loss-Funktion
                     optimizer='Adam',
                     metrics={
-            # "ECG_output": 'MAE',
-            # "BBI_output": 'MAE'
-            "RP_output": 'binary_accuracy'
-            })
+                        "Tachy_output": 'MAE',
+                        # "ECG_output": 'MAE',
+                        # "BBI_output": 'MAE'
+                        # "RP_output": 'binary_accuracy'
+                        })
         
         # Callback
-        escb = EarlyStopping(monitor='binary_accuracy', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'ECG_output_MAE'
+        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'Tachy_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
         
         # Train model on training set
         print("Training model...")
@@ -156,7 +158,8 @@ def train(total_epochs=250,
         plt.title("Full plot Truth and Pred of column 0")
         plt.plot(list(range(len(y_test[0][0,:]))), y_test[0][example,:])
         plt.plot(list(range(len(y_pred[0][0,:]))), y_pred[0][example,:])
-        plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
+        if "ECG" in out_types[0]:
+                plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
         plt.legend(["y_test", "y_pred", "X_test"])
         plt.savefig("Full-Plot col 0")
         # while loop for saving image
@@ -186,6 +189,15 @@ def train(total_epochs=250,
             plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
             if "ECG" in out_types[k]:
                 plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
+            if "RP" in out_types[k]:
+                print("Shape pred:", np.shape(y_test[k][example,:]))
+                bool_pred = np.round(y_pred[k][example,:]) != 0.
+                acc = y_test[k][example,:] == bool_pred[:,0]
+                print("Shape acc:", np.shape(acc))
+                acc = np.round(np.sum(np.array(acc, np.int8)) / len(y_pred[k][example,:]) * 100,2)
+                plt.title("Accuracy of r-peak detection:" + str(acc))
+                print("Anzahl an beats: ", np.sum(np.array(y_test[k][example,:], np.int8)))
+                # print(y_test)
             plt.legend(["y_Test", "Prediction", "X_Test"])
             name = concat("./ZoomPlot-Col-",str(k))
             plt.savefig(name)
@@ -216,13 +228,13 @@ def train(total_epochs=250,
             example = np.random.randint(len(y_test[0][:,0]))
             for k in range(len(y_pred)):
                 plt.figure(k)
-                plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
-                plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
-                plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
+                plt.title(concat("Truth and Pred of column ", str(k)))
+                plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
+                plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
                 if "ECG" in out_types[k]:
                     plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
                 plt.legend(["y_Test", "Prediction", "X_Test"])
-                name = "./ZoomPlot-Col-" + str(k) + "-example-" + str(l)
+                name = "./plots/Plot-Col-" + str(k) + "-example-" + str(l)
                 plt.savefig(name)
                 plt.close()
         
