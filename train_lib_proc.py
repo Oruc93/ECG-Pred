@@ -73,8 +73,12 @@ def memorize(filename, dataset):
             data[name] = file[name][:] # loads pointer to dataset into variable
             print("Shape of " + name, np.shape(data[name]))
         except:
-            print("dataset not found in H5-file. Choose one of the datasets below")
-            print(file.keys())
+            if name=='Tachy': # we will use Tachygramm with x-axis in samples
+                data[name] = file['RP'][:] # loads pointer to dataset into variable
+                print("Shape of " + name, np.shape(data[name]))
+            else:
+                print("dataset not found in H5-file. Choose one of the datasets below")
+                print(file.keys())
     # print("Available keys: ", file.keys())
     
     # plots the distribution of first dataset
@@ -136,6 +140,7 @@ def output_type(data, OUTPUT_name):
     """
     dic_types = {
         "ECG": "regressionECG", "MA": "regressionMA", "RP": "classificationRP", "BBI": "regressionBBI", "symbols": "classificationS", "words": "distributionW",
+        "Tachy": "regressionTachy",
         "forbword": "parameter", "fwshannon": "parameter", "fwrenyi 0.25": "parameter",
         "fwrenyi 4": "parameter", "wsdvar": "parameter", "wpsum 02": "parameter", 
         "wpsum 13": "parameter", "plvar 5": "parameter", "plvar 10": "parameter", 
@@ -163,6 +168,9 @@ def output_type(data, OUTPUT_name):
             except:
                 out_types.append("No type detected")
     return out_types
+
+def gaussian(x, mu, sig):
+    return np.exp(-np.power(x - mu, 2.) / (2 * np.power(sig, 2.)))
 
 def constr_feat(data, NAME, length_item):
     """ This function constructs the feature from given datasets and lags of interest
@@ -207,8 +215,7 @@ def constr_feat(data, NAME, length_item):
                 # x-Achse in samples. Problem der Arraygröße verschwindet
                 # bei downgesamplter Größe bleiben im Netz
                 # zwischen den BBI linear interpolieren
-                
-                if key == 'BBI': # Scaling BBI values from ms to s. Better results in training
+                if key == 'BBI':
                     # Main problem is the different length BBI and ecg timeseries
                     # First try with padded sequence. This way output data has fixed size
                     # We pad before the time series
@@ -216,27 +223,53 @@ def constr_feat(data, NAME, length_item):
                     # data[key] *= 0.001 # scale values form ms to s. network learns better this way
                     print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
                     # lower bound / starting point of BBI time series. Defined by lag in samples / data points
-                    lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
-                    # upper bound / ending point of BBI
-                    up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
-                    BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
-                    if BBI_size == 0: # check if BBI_size was set
-                        pad_size = 1 # BBI_size was never sat. good padding to include worst case
-                    else:
-                        pad_size = BBI_size-len(BBI[0,:]) # padding Test data to training size
-                        if pad_size<0: # check if worst case was pessimist enough
-                            SyntaxError("pad_size four lines above is too small. Raise by: ", -pad_size)
-                    BBI = np.concatenate((np.zeros((np.shape(BBI)[0], pad_size)), BBI), axis=1) # pad zeros to front of time series
-                    for row in range(len(BBI[:,0])): # loop over all rows in BBI array
-                        while True: # loop until all time series are flushed to right
-                            if BBI[row,-1]==0: # check if last value of BBI is zero
-                                BBI[row,:] = np.roll(BBI[row,:],1) # moves all element 1 to the right. Right most moves to first
-                            else:
-                                break # last element non-zero -> row is flushed to right -> break while loop
-                    dic_seq[key+name] = BBI * 0.001 # scale values form ms to s. network learns better this way
-                    print(np.shape(dic_seq[key+name]))
-                    BBI_size = max(BBI_size, len(dic_seq[key+name][0,:]))
+                    # lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
+                    # # upper bound / ending point of BBI
+                    # up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+                    # BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+                    # if BBI_size == 0: # check if BBI_size was set
+                    #     pad_size = 1 # BBI_size was never sat. good padding to include worst case
+                    # else:
+                    #     pad_size = BBI_size-len(BBI[0,:]) # padding Test data to training size
+                    #     if pad_size<0: # check if worst case was pessimist enough
+                    #         SyntaxError("pad_size four lines above is too small. Raise by: ", -pad_size)
+                    # BBI = np.concatenate((np.zeros((np.shape(BBI)[0], pad_size)), BBI), axis=1) # pad zeros to front of time series
+                    # for row in range(len(BBI[:,0])): # loop over all rows in BBI array
+                    #     while True: # loop until all time series are flushed to right
+                    #         if BBI[row,-1]==0: # check if last value of BBI is zero
+                    #             BBI[row,:] = np.roll(BBI[row,:],1) # moves all element 1 to the right. Right most moves to first
+                    #         else:
+                    #             break # last element non-zero -> row is flushed to right -> break while loop
+                    # dic_seq[key+name] = BBI * 0.001 # scale values form ms to s. network learns better this way
+                    # print(np.shape(dic_seq[key+name]))
+                    # BBI_size = max(BBI_size, len(dic_seq[key+name][0,:]))
+                
+                if key == 'Tachy':
+                    # Tachygram of ecg. x-axis: sample. y-axis: ms
+                    print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                    bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
+                    bc = bc==3 # binary categorizing of r-peaks
+                    rp = np.argwhere(bc>0) # position of r-peaks in samples of all examples
+                    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                    ratio = samplerate / ds_samplerate # quotient between both samplerates
+                    tachy = np.zeros((len(bc[:,0]), int(length_item / ratio))) # empty array to contain tachygram
+                    for n in range(len(bc[:,0])): # loop over all examples
+                        ts =  np.argwhere(rp[:,0]==n)[:,0] # position of r-peaks of example n in rp
+                        rp_ts = rp[ts,1] # position of r-peaks in example n
+                        y_ts = rp_ts[1:] - rp_ts[:-1] # calculate BBI between r-peaks. Exlude first point
+                        tachy[n,:] = np.interp(list(range(len(tachy[0,:]))), rp_ts[1:] / ratio, y_ts) # position r-peaks and interpolate tachygram. x-axis in samples
+                    tachy = tachy / samplerate # transform from sample into ms
+                    dic_seq[key+name] = tachy
+                    plt.figure(1)
+                    # plt.plot(list(range(len(tachy[n,:]))), tachy[n,:])
+                    plt.plot(np.linspace(0, len(tachy[n,:]) / ds_samplerate, num=len(tachy[n,:])), tachy[n,:])
+                    plt.savefig("Tachygram.png")
+                    plt.close()
+                    
                 if key == 'RP': # position of r-Peak
+                    
+                    # Funktioniert nicht !!!!
+                    
                     # time series in ipeaks contains categories of waves and peaks of ecg
                     # each sample has a categorical value
                     # ipeaks: labels for PQRST peaks: P(1), Q(2), R(3), S(4), T(5)
@@ -244,12 +277,20 @@ def constr_feat(data, NAME, length_item):
                     print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
                     bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
                     bc = bc==3 # binary categorizing of r-peaks
-                    # downsample from samplerate to 4Hz
-                    ds = int(samplerate/128) # downsampling rate
-                    seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), False)
+                    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                    ds = int(samplerate/ds_samplerate) # downsampling ratio
+                    # seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), False) # True False classification
+                    seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), 0.) # 0 1 classification float
+                    gauss = gaussian(np.linspace(-3, 3, ds*5), 0, 1) * 1. # gaussian to overlay over r-peak
                     for example in range(len(bc[:,0])): # loop over all examples
                         for sample in range(len(seq[0,:])): # loop over all downsamples
-                            seq[example, sample] = np.any(bc[example, sample*ds:sample*ds+ds-1]) # window of 256 samples. If any is true, seq is true
+                            # seq[example, sample] = np.any(bc[example, sample*ds:sample*ds+ds-1]) # window of 8 samples. If any is true, seq is true
+                            if np.any(bc[example, sample*ds:sample*ds+ds-1]): # window of 8 samples. If any is 1, seq is 1
+                                seq[example, sample] = 1.
+                        conv_seq = np.convolve(seq[example, :], gauss, mode='same')
+                        # print(np.shape(conv_seq))
+                        seq[example, :] += conv_seq
+                        seq[example, :] = np.clip(seq[example, :], 0, 1)
                     dic_seq[key+name] = seq
                     print(np.shape(dic_seq[key+name]))
                 if key == 'words': # transform categories of words into timeseries length
@@ -268,6 +309,8 @@ def constr_feat(data, NAME, length_item):
                 if key == 'symbols': # Transform into one-hot vector
                     
                     # diese categorisierung nachbesser
+                    # ist noch von BBI analyse
+                    # sprich jede x-Stelle ist einem Beat zugeordnet
                     
                     sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item+int(name[4:])]
                     amount_cat = len(np.unique(data[key][:])) # Anzahl an Kategorien in Zeitreihe
@@ -305,7 +348,7 @@ def constr_feat(data, NAME, length_item):
                 print("parameter ", key," with lag ", int(name[4:]), " at column ", feat_number)
                 sequence[:,:,feat_number] = np.repeat(data[key][:], length_item, axis=0)
                 continue
-    if key=='ECG' or key=='BBI' or key=='RP':
+    if key=='ECG' or key=='BBI' or key=='RP' or key=='Tachy':
         return dic_seq
     else:
         return sequence
@@ -488,6 +531,9 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
         elif 'RP' in out_types[x]: # position of R-peak output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="sigmoid", name="RP_output")(branch_dic["branch{0}".format(x)])
+        elif 'Tachy' in out_types[x]: # Tachygram regression output
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tachy_output")(branch_dic["branch{0}".format(x)])
 
     
     # Concating outputs
@@ -510,7 +556,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
     return model, ds_samplerate
 
-def setup_maxKomp_Conv_AE_LSTM_P(input_shape, size, number_feat, samplerate):
+def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2):
     """ This NN has the goal to maximize the compression in the latent space
     
     builds Autoencoder for different sizes and number of features
@@ -719,10 +765,33 @@ def RP_loss(y_true, y_pred):
                     - this way the gradient for each additional feature is more gentle compared to previous features
                     - this gives a loose order in which the LOSSes are minimized
         """
-        squarred_differences = []
+        
         bce = K.losses.BinaryCrossentropy(from_logits=True) # function for LOSS of choice
-        # sd = tf.stack(bce(y_true[:,:], y_pred[:,:])) # Concat the LOSSes of each feature
-        loss = bce(y_true[:,:], y_pred[:,:])
+        # loss = bce(y_true, y_pred)
+        # Apply the weights
+        # weight_vector = tf.cast(y_true, tf.float16) * 0.999 + (1. - tf.cast(y_true, tf.float16)) * 0.001
+        weight_vector = tf.math.rint(y_true) * 0.5 + (1. - tf.math.rint(y_true)) * 0.5
+        # loss = weight_vector * b_ce
+        
+        mse = K.losses.MeanSquaredError() # function for LOSS of choice
+        loss = weight_vector * mse(y_true, y_pred)
+        
+        # # sd = tf.stack(bce(y_true[:,:], y_pred[:,:])) # Concat the LOSSes of each feature
+        # R_true = y_true[y_true==True]
+        # # tf.print("Shape of R_true", tf.shape(R_true))
+        # R_pred = y_pred[y_true==True]
+        # loss = bce(R_true, R_pred)**2*10**3
+        
+        # R_true = y_true[y_true==False]
+        # # tf.print("Shape of R_true", tf.shape(R_true))
+        # R_pred = y_pred[y_true==False]
+        # loss = bce(R_true, R_pred)
+        
+        # pR_true = y_true[y_pred>0.5]
+        # # tf.print("Shape of R_true", tf.shape(R_true))
+        # pR_pred = y_pred[y_pred>0.5]
+        # loss += bce(pR_true, pR_pred)
+        # # loss = bce(y_true[:,:], y_pred[:,:])
         
         # Here we calculate the mean of each column
         # loss = tf.reduce_mean(sd, axis=-1)  # Note the `axis=-1`
@@ -871,4 +940,10 @@ class DataGenerator(K.utils.Sequence):
 
         return X, {"ECG_output": y_ecg, "BBI_output": y_bbi}
     
+def calc_symboldynamics(beat_to_beat_intervals, a, mode):
+    """ Function to determine symbols for dynamics of beat-to-beat-intervals
     
+    a: float. parameters of symbol definition
+    mode: mode of differentiation
+    
+    """
