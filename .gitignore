@@ -10,6 +10,8 @@
 /train_MS.py
 /Skizze.py
 /Mittel*
+/plots
+GPT-Test.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

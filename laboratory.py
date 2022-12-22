@@ -10,6 +10,8 @@ from train_proc import train
 # Sets target file for saving runs
 # mlflow.set_tracking_uri()
 
+
+
 # Set experiment active or create new one
 experiment = mlflow.set_experiment("Test different losses features") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
@@ -27,9 +29,9 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 
 train(NNsize=int(2**4), 
       total_epochs=50, 
-      length_item= 2**18, # raise this by using generator for data input in NN. Hopefully
+      length_item= 2**15, # raise this by using generator for data input in NN. Hopefully
       # INPUT_name = {"symbols": ["lag 0"]},
-      OUTPUT_name = {'Tachy': ["lag 0"]},# 'RP': ["lag 0"]},# ,  "BBI": ["lag 0"]},# "ECG": ["lag 0"], {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"]
+      OUTPUT_name = {'symbols': ["lag 0"]},# 'RP': ["lag 0"]},# ,  "BBI": ["lag 0"]},# "ECG": ["lag 0"], {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"] 'Tacho': ["lag 0"], 
       Arch = "Conv-AE-LSTM-P") # "LSTM-AE")
 
 # for N in range(16,18,1):

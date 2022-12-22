@@ -1,5 +1,9 @@
-import numpy as np
-import matplotlib.pyplot as plt
+# import numpy as np
+# import matplotlib.pyplot as plt
+
+import tensorflow as tf
+print("Tensorflow version: ", tf.__version__)
+exit()
 
 X_test = np.load("./X_test.npy")
 y_test = np.load("./y_test.npy")

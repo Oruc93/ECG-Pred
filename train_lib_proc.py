@@ -5,15 +5,32 @@ from random import sample
 import numpy as np
 import h5py
 import matplotlib.pyplot as plt
-from tensorflow.keras import mixed_precision
-from keras.layers import Dense, Input, BatchNormalization,  LSTM, TimeDistributed
-from keras.layers import Conv1D, Conv1DTranspose, UpSampling1D, AveragePooling1D, MaxPooling1D, Reshape, Flatten
-from keras.layers.merge import concatenate
-from keras.models import Model
 import tensorflow as tf
 import tensorflow.keras as K
+from tensorflow.keras import mixed_precision
+from tensorflow.keras.layers import (
+    Dense,
+    Input,
+    BatchNormalization,
+    LSTM,
+    TimeDistributed,
+    Conv1D,
+    Conv1DTranspose,
+    UpSampling1D,
+    AveragePooling1D,
+    MaxPooling1D,
+    Reshape,
+    Flatten,
+    concatenate,
+)
+from keras.models import Model
+
+# import NonLinearParameters as nl
+import matlab.engine
+
 
 # print("Tensorflow version: ", tf.__version__)
+# exit()
 
 # Change directory to current file directory
 abspath = os.path.abspath(__file__)
@@ -40,46 +57,53 @@ def unique(list1):
     return unique_list
         
 def memorize(filename, dataset):
-    """Memorizes needed data from HDF5 file
-    Returns as numpy array
+    """Memorizes needed data from HDF5 file and returns as a dictionary.
     
-    HDF5 is named in filename
-    dataset is a list of timeseries and parameters we are interested in
+    Args:
+        filename (str): Name of the HDF5 file.
+        dataset (list): List of timeseries and parameters to be retrieved from the HDF5 file.
     
-    returns data. Dictionary with timeseries and parameters as keys and datapoints as values
-    values can be sequences or singular values
+    Returns:
+        tuple: A tuple containing the data as a dictionary and the sample rate.
     """
-    # Checks if filename is a string
-    if not(isinstance(filename, str)):
-        print("filename must be a string naming a H5-file.")
-    # Checks if dataset is a string
-    if not(isinstance(dataset, list)):
-        print("dataset must be a list of keys as datasets of the H5-file.")
+    # Check if filename is a string
+    if not isinstance(filename, str):
+        raise TypeError("filename must be a string naming a H5-file.")
+    # Check if dataset is a list
+    if not isinstance(dataset, list):
+        raise TypeError("dataset must be a list of keys as datasets of the H5-file.")
     
+    # Try to open the HDF5 file
     try:
-        file = h5py.File(filename, "r") # pointer to h5-file
+        file = h5py.File(filename, "r")  # pointer to h5-file
     except:
-        print("H5-file not found in current directory. Choose one of the files below")
         print("Current directory:", dname)
-        print([".data/" + name for name in os.listdir("./data") if "h5" in name]) # listet alle h5 Dateien im data Ordner
-        print([".data/" + name for name in os.listdir("./data") if "hdf5" in name])
-        print([".data/" + name for name in os.listdir() if "h5" in name]) # listet alle h5 Dateien im aktuellen Ordner
-        print([".data/" + name for name in os.listdir() if "hdf5" in name])
+        dir_list=[]
+        dir_list.append([".data/" + name for name in os.listdir("./data") if "h5" in name]) # listet alle h5 Dateien im data Ordner
+        dir_list.append([".data/" + name for name in os.listdir("./data") if "hdf5" in name])
+        dir_list.append([".data/" + name for name in os.listdir() if "h5" in name]) # listet alle h5 Dateien im aktuellen Ordner
+        dir_list.append([".data/" + name for name in os.listdir() if "hdf5" in name])
+        raise FileNotFoundError("H5-file not found in current directory. Choose one of the files below: {dir_list}")
     
     data = {} # dictionary containing data
-    for name in dataset: # loop over datasets named in list
+    for name in dataset:  # loop over datasets named in list
         print("Memorizing timeseries: ", name)
-        try:
-            data[name] = file[name][:] # loads pointer to dataset into variable
-            print("Shape of " + name, np.shape(data[name]))
-        except:
-            if name=='Tachy': # we will use Tachygramm with x-axis in samples
-                data[name] = file['RP'][:] # loads pointer to dataset into variable
+        if name in ["symbols", "words", "forbword", "fwshannon", "fwrenyi 0.25",
+                    "fwrenyi 4", "wsdvar", "wpsum 02", 
+                    "wpsum 13", "plvar 5", "plvar 10", 
+                    "plvar 20", "phvar 20", "phvar 50", "phvar 100"]: # we construct non-linear parameters from BBI
+                data[name] = file["BBI"][:]  # loads pointer to dataset into variable
                 print("Shape of " + name, np.shape(data[name]))
-            else:
-                print("dataset not found in H5-file. Choose one of the datasets below")
-                print(file.keys())
-    # print("Available keys: ", file.keys())
+        else:
+            try:
+                data[name] = file[name][:]  # loads pointer to dataset into variable
+                print("Shape of " + name, np.shape(data[name]))
+            except KeyError:
+                if name == "Tacho":  # we will use Tachygramm with x-axis in samples
+                    data[name] = file["RP"][:]  # loads pointer to dataset into variable
+                    print("Shape of " + name, np.shape(data[name]))
+                else:
+                    raise KeyError(f"dataset {name} not found in H5-file. Choose one of the datasets below: {file.keys()}")
     
     # plots the distribution of first dataset
     plt.figure(1)
@@ -97,17 +121,17 @@ def memorize(filename, dataset):
     return data, samplerate # returns datasets
 
 def set_items(data, INPUT_name, OUTPUT_name, length_item):
-    """ This function pulls items from datasets
-     The items are separated by Input and Output, training and test
+    """This function pulls items from datasets and separates them into input and output for training and test sets.
      
-     
-    :param data: dictionary containing datasets
-    :param INPUT_name: selection of input features and lags. Dictionary
-    :param OUTPUT_name: selection of output features and lags. Dictionary
-    :param length_item: length of items given into the neural network
+    Args:
+        data (dict): Dictionary containing datasets.
+        INPUT_name (dict): Selection of input features and lags.
+        OUTPUT_name (dict): Selection of output features and lags.
+        length_item (int): Length of items given into the neural network.
     
-    :return X,y: numpy arrays of training or test sets
-     """    
+    Returns:
+        tuple: A tuple containing numpy arrays of the training or test sets for the input and output.
+    """  
     # Constructing toy problem sinus curve in shape of data
     """x = np.linspace(0, np.shape(data)[1]/250, num=np.shape(data)[1])
     for k in range(np.shape(data)[0]):
@@ -124,14 +148,15 @@ def set_items(data, INPUT_name, OUTPUT_name, length_item):
     X = X[list(X.keys())[0]] # Takes value out of only key of dictionary
     print(np.shape(X))
     print("Constructing output array ...")
-    out_types = output_type(data, OUTPUT_name) # global list of types of output for loss and output layer
+    # out_types = output_type(data, OUTPUT_name) # global list of types of output for loss and output layer
     y = constr_feat(data, OUTPUT_name, length_item)
+    out_types = output_type(y, OUTPUT_name) # global list of types of output for loss and output layer
     y_list = [] # Sorting values of dictionary into list. Outputs need to be given to NN in list. Allows different formatted Truths
     for key in y.keys():
         y_list.append(y[key])
     return X, y_list, out_types
 
-def output_type(data, OUTPUT_name):
+def output_type(dic_seq, OUTPUT_name):
     """ returns list with type of output at the corresponding column
     Types are of regressional and categorical timeseries and parameters
     The three types need to be handled differently in the output layer and loss function to get the desired results
@@ -139,8 +164,9 @@ def output_type(data, OUTPUT_name):
     returns: list. Types of output for each column
     """
     dic_types = {
-        "ECG": "regressionECG", "MA": "regressionMA", "RP": "classificationRP", "BBI": "regressionBBI", "symbols": "classificationS", "words": "distributionW",
-        "Tachy": "regressionTachy",
+        "ECG": "regressionECG", "MA": "regressionMA", "RP": "classificationRP", "BBI": "regressionBBI", 
+        "symbols": "classificationSymbols", "words": "distributionWords",
+        "Tacho": "regressionTacho",
         "forbword": "parameter", "fwshannon": "parameter", "fwrenyi 0.25": "parameter",
         "fwrenyi 4": "parameter", "wsdvar": "parameter", "wpsum 02": "parameter", 
         "wpsum 13": "parameter", "plvar 5": "parameter", "plvar 10": "parameter", 
@@ -156,11 +182,12 @@ def output_type(data, OUTPUT_name):
                 #     out_types.append(dic_types[key] + str(0)) # number columns containing label
                 #     # Important for initializing model, loss function and plotting output
                 if key == 'symbols': # Check ob Symbole einbezogen werden
-                    for k in range(len(np.unique(data[key][:]))): # unique labels in timeseries
-                        out_types.append(dic_types[key] + str(k)) # number columns containing label
+                    out_types.append(dic_types[key] + str(len(np.unique(dic_seq[key+name])))) # number columns containing label
+                    # out_types.append(dic_types[key] + str(len(dic_seq[key+name][0,0,:]))) # number columns containing label
+                    # out_types.append(dic_types[key] + str(1))
                         # Important for initializing model, loss function and plotting output
                 elif key == 'words':
-                    for k in range(len(data[key][0])): # unique labels in timeseries
+                    for k in range(len(dic_seq[key+name][0])): # unique labels in timeseries
                         out_types.append(dic_types[key] + str(k)) # number columns containing label
                         # Important for initializing model, loss function and plotting output
                 else:
@@ -185,173 +212,228 @@ def constr_feat(data, NAME, length_item):
     # print("Data: ", data)
     print(NAME)
     count = 0
-    for key in NAME: # loop über Zeitreihen von Interesse
-        if isinstance(NAME[key], list): # Zählen der Anzahl an lag-Versionen der Zeitreihen
-            amount_cat = 1 # reset of category variable
-            if key == 'symbols': # Check ob Symbole einbezogen werden
-                amount_cat = len(np.unique(data[key][:])) # Anzahl an Kategorien in Zeitreihe
-            if key == 'words': # Check ob Symbole einbezogen werden
-                amount_cat = len(data[key][0]) # Anzahl an Kategorien in Zeitreihe
-            count += len(NAME[key]) * amount_cat # Summation der Menge an einbezogenen Zeitreihen
-        else:
-            Warning("Value of key is not a list", key)
-    print("Number of columns: ", count)
+    # for key in NAME: # loop über Zeitreihen von Interesse
+    #     if isinstance(NAME[key], list): # Zählen der Anzahl an lag-Versionen der Zeitreihen
+    #         amount_cat = 1 # reset of category variable
+    #         if key == 'symbols': # Check ob Symbole einbezogen werden
+    #             amount_cat = 4 # Anzahl an Kategorien in Zeitreihe. len(np.unique(data[key][:]))
+    #         if key == 'words': # Check ob Symbole einbezogen werden
+    #             amount_cat = 64 # Anzahl an Kategorien in Zeitreihe. len(data[key][0])
+    #         count += len(NAME[key]) * amount_cat # Summation der Menge an einbezogenen Zeitreihen
+    #     else:
+    #         Warning("Value of key is not a list", key)
+    # print("Number of columns: ", count)
     # print(data)
-    sequence = np.zeros((np.shape(data[key])[0], length_item, count)) # prebuilding empty sequence
+    # sequence = np.zeros((np.shape(data[key])[0], length_item, count)) # prebuilding empty sequence
     dic_seq = {}
-    global BBI_size # saves size of BBI arrays globally. Is needed in NN construction
-    if not('BBI_size' in globals()): # check if BBI_size exists globally
-        BBI_size = 0
+    global symbols_size # saves size of BBI arrays globally. Is needed in NN construction
+    if not('symbols_size' in globals()): # check if BBI_size exists globally
+        symbols_size = 0
     feat_number = int(-1)
     for key in NAME: # loop over dictionary keys
         for name in NAME[key]: # loop over lags and options found under key
             feat_number += 1
             # check if data is timeseries or parameter
             print("Shape of data ", key, " : ", np.shape(data[key]))
-            if len(data[key][0,:]) > 1: # timeseries is saved with lag
-                print("timeseries ", key," with lag ", int(name[4:]), " at column ", feat_number)
+            print("timeseries ", key," with lag ", int(name[4:]), " at column ", feat_number)
+            
+            # BBI time series ändern
+            # x-Achse in samples. Problem der Arraygröße verschwindet
+            # bei downgesamplter Größe bleiben im Netz
+            # zwischen den BBI linear interpolieren
+            if key == 'BBI':
+                # Main problem is the different length BBI and ecg timeseries
+                # First try with padded sequence. This way output data has fixed size
+                # We pad before the time series
+                # slice correct BBI of interval of interest
+                # data[key] *= 0.001 # scale values form ms to s. network learns better this way
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                # lower bound / starting point of BBI time series. Defined by lag in samples / data points
+                # lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
+                # # upper bound / ending point of BBI
+                # up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+                # BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+                # if BBI_size == 0: # check if BBI_size was set
+                #     pad_size = 1 # BBI_size was never sat. good padding to include worst case
+                # else:
+                #     pad_size = BBI_size-len(BBI[0,:]) # padding Test data to training size
+                #     if pad_size<0: # check if worst case was pessimist enough
+                #         SyntaxError("pad_size four lines above is too small. Raise by: ", -pad_size)
+                # BBI = np.concatenate((np.zeros((np.shape(BBI)[0], pad_size)), BBI), axis=1) # pad zeros to front of time series
+                # for row in range(len(BBI[:,0])): # loop over all rows in BBI array
+                #     while True: # loop until all time series are flushed to right
+                #         if BBI[row,-1]==0: # check if last value of BBI is zero
+                #             BBI[row,:] = np.roll(BBI[row,:],1) # moves all element 1 to the right. Right most moves to first
+                #         else:
+                #             break # last element non-zero -> row is flushed to right -> break while loop
+                # dic_seq[key+name] = BBI * 0.001 # scale values form ms to s. network learns better this way
+                # print(np.shape(dic_seq[key+name]))
+                # BBI_size = max(BBI_size, len(dic_seq[key+name][0,:]))
+            
+            if key == 'Tacho':
+                # Tachogram of ecg. x-axis: sample. y-axis: ms
+                # takes peak and wave categories of matlab syntethizes with samplerate 1024Hz
+                # identifies r-peaks and calculates BBI (distances in samples)
+                # constructs Tachogram and transforms units into ms
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
+                bc = bc==3 # binary categorizing of r-peaks
+                rp = np.argwhere(bc>0) # position of r-peaks in samples of all examples
+                ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                ratio = samplerate / ds_samplerate # quotient between both samplerates
+                Tacho = np.zeros((len(bc[:,0]), int(length_item / ratio))) # empty array to contain Tachogram
+                for n in range(len(bc[:,0])): # loop over all examples
+                    ts =  np.argwhere(rp[:,0]==n)[:,0] # position of r-peaks of example n in rp
+                    rp_ts = rp[ts,1] # position of r-peaks in example n
+                    y_ts = rp_ts[1:] - rp_ts[:-1] # calculate BBI between r-peaks. Exlude first point
+                    Tacho[n,:] = np.interp(list(range(len(Tacho[0,:]))), rp_ts[1:] / ratio, y_ts) # position r-peaks and interpolate Tachogram. x-axis in samples
+                Tacho = Tacho / samplerate # transform from sample into ms
+                dic_seq[key+name] = Tacho
+                plt.figure(1)
+                # plt.plot(list(range(len(Tacho[n,:]))), Tacho[n,:])
+                plt.plot(np.linspace(0, len(Tacho[n,:]) / ds_samplerate, num=len(Tacho[n,:])), Tacho[n,:])
+                plt.savefig("Tachogram.png")
+                plt.close()
                 
-                # BBI time series ändern
-                # x-Achse in samples. Problem der Arraygröße verschwindet
-                # bei downgesamplter Größe bleiben im Netz
-                # zwischen den BBI linear interpolieren
-                if key == 'BBI':
-                    # Main problem is the different length BBI and ecg timeseries
-                    # First try with padded sequence. This way output data has fixed size
-                    # We pad before the time series
-                    # slice correct BBI of interval of interest
-                    # data[key] *= 0.001 # scale values form ms to s. network learns better this way
-                    print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
-                    # lower bound / starting point of BBI time series. Defined by lag in samples / data points
-                    # lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
-                    # # upper bound / ending point of BBI
-                    # up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
-                    # BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
-                    # if BBI_size == 0: # check if BBI_size was set
-                    #     pad_size = 1 # BBI_size was never sat. good padding to include worst case
-                    # else:
-                    #     pad_size = BBI_size-len(BBI[0,:]) # padding Test data to training size
-                    #     if pad_size<0: # check if worst case was pessimist enough
-                    #         SyntaxError("pad_size four lines above is too small. Raise by: ", -pad_size)
-                    # BBI = np.concatenate((np.zeros((np.shape(BBI)[0], pad_size)), BBI), axis=1) # pad zeros to front of time series
-                    # for row in range(len(BBI[:,0])): # loop over all rows in BBI array
-                    #     while True: # loop until all time series are flushed to right
-                    #         if BBI[row,-1]==0: # check if last value of BBI is zero
-                    #             BBI[row,:] = np.roll(BBI[row,:],1) # moves all element 1 to the right. Right most moves to first
-                    #         else:
-                    #             break # last element non-zero -> row is flushed to right -> break while loop
-                    # dic_seq[key+name] = BBI * 0.001 # scale values form ms to s. network learns better this way
-                    # print(np.shape(dic_seq[key+name]))
-                    # BBI_size = max(BBI_size, len(dic_seq[key+name][0,:]))
+            if key == 'RP': # position of r-Peak
                 
-                if key == 'Tachy':
-                    # Tachygram of ecg. x-axis: sample. y-axis: ms
-                    print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
-                    bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
-                    bc = bc==3 # binary categorizing of r-peaks
-                    rp = np.argwhere(bc>0) # position of r-peaks in samples of all examples
-                    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
-                    ratio = samplerate / ds_samplerate # quotient between both samplerates
-                    tachy = np.zeros((len(bc[:,0]), int(length_item / ratio))) # empty array to contain tachygram
-                    for n in range(len(bc[:,0])): # loop over all examples
-                        ts =  np.argwhere(rp[:,0]==n)[:,0] # position of r-peaks of example n in rp
-                        rp_ts = rp[ts,1] # position of r-peaks in example n
-                        y_ts = rp_ts[1:] - rp_ts[:-1] # calculate BBI between r-peaks. Exlude first point
-                        tachy[n,:] = np.interp(list(range(len(tachy[0,:]))), rp_ts[1:] / ratio, y_ts) # position r-peaks and interpolate tachygram. x-axis in samples
-                    tachy = tachy / samplerate # transform from sample into ms
-                    dic_seq[key+name] = tachy
-                    plt.figure(1)
-                    # plt.plot(list(range(len(tachy[n,:]))), tachy[n,:])
-                    plt.plot(np.linspace(0, len(tachy[n,:]) / ds_samplerate, num=len(tachy[n,:])), tachy[n,:])
-                    plt.savefig("Tachygram.png")
-                    plt.close()
-                    
-                if key == 'RP': # position of r-Peak
-                    
-                    # Funktioniert nicht !!!!
-                    
-                    # time series in ipeaks contains categories of waves and peaks of ecg
-                    # each sample has a categorical value
-                    # ipeaks: labels for PQRST peaks: P(1), Q(2), R(3), S(4), T(5)
-                    # A zero lablel is output otherwise ... to fin R-peaks use sequence == 3
-                    print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
-                    bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
-                    bc = bc==3 # binary categorizing of r-peaks
-                    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
-                    ds = int(samplerate/ds_samplerate) # downsampling ratio
-                    # seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), False) # True False classification
-                    seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), 0.) # 0 1 classification float
-                    gauss = gaussian(np.linspace(-3, 3, ds*5), 0, 1) * 1. # gaussian to overlay over r-peak
-                    for example in range(len(bc[:,0])): # loop over all examples
-                        for sample in range(len(seq[0,:])): # loop over all downsamples
-                            # seq[example, sample] = np.any(bc[example, sample*ds:sample*ds+ds-1]) # window of 8 samples. If any is true, seq is true
-                            if np.any(bc[example, sample*ds:sample*ds+ds-1]): # window of 8 samples. If any is 1, seq is 1
-                                seq[example, sample] = 1.
-                        conv_seq = np.convolve(seq[example, :], gauss, mode='same')
-                        # print(np.shape(conv_seq))
-                        seq[example, :] += conv_seq
-                        seq[example, :] = np.clip(seq[example, :], 0, 1)
-                    dic_seq[key+name] = seq
-                    print(np.shape(dic_seq[key+name]))
-                if key == 'words': # transform categories of words into timeseries length
-                    
-                    # diese categorisierung nachbesser
-                    
-                    amount_cat = len(data[key][0]) # Anzahl an Kategorien in Zeitreihe
-                    # print(data[key][0])
-                    # print(np.shape(data[key][0]))
-                    for n in range(len(sequence[:,0,0])): # loop over all examples
-                        sequence[n,:,feat_number:feat_number+amount_cat] = np.full(
-                            np.shape(sequence[n,:,feat_number:feat_number+amount_cat]),
-                            data[key][n]
-                        )
-                    feat_number += amount_cat - 1
-                if key == 'symbols': # Transform into one-hot vector
-                    
-                    # diese categorisierung nachbesser
-                    # ist noch von BBI analyse
-                    # sprich jede x-Stelle ist einem Beat zugeordnet
-                    
-                    sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item+int(name[4:])]
-                    amount_cat = len(np.unique(data[key][:])) # Anzahl an Kategorien in Zeitreihe
-                    seq_sy = np.zeros((np.shape(data[key])[0], length_item, amount_cat)) # prebuilding empty sequence
-                    layer = K.layers.CategoryEncoding(num_tokens = amount_cat, output_mode="one_hot")
-                    for n in range(len(seq_sy[:,0,0])):
-                        seq_sy[n,:,:] = layer(sequence[n,:,feat_number])
-                    sequence[:,:, feat_number:feat_number+amount_cat] = seq_sy
-                    feat_number += amount_cat - 1
-                if key == 'ECG': # check if feature is of lag nature
-                    print("feature: lag ", int(name[4:]), "at column ", feat_number)
-                    # sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item + int(name[4:])]
-                    # sequence[:,:,feat_number] *= 100 # min-max scaling by hand
-                    seq = data[key][:, int(name[4:]) : length_item + int(name[4:])]
-                    seq *= 100 # min-max scaling by hand
-                    dic_seq[key+name] = seq
-                    print(np.shape(dic_seq[key+name]))                    
-                    continue
-                # calculation with convolution of padded interval and sequence of ones
-                if key == 'moving average': # Calculating moving average of half second before and after. Here: 1000Hz
-                    # https://stackoverflow.com/questions/14313510/how-to-calculate-rolling-moving-average-using-python-numpy-scipy
-                    print("feature: moving average at column ", feat_number)
-                    ma_win = float(name) # window of MA in seconds
-                    s = int(samplerate*ma_win)
-                    h_s = int(s/2) # half of the window length. important to for getting padding around interval of interest
-                    # padding with points from timeseries. This way more information in feature
-                    for n in range(np.shape(sequence)[0]): # loop over ecgs
-                        # convolution of interval of interest and sequence of ones with length samplerate
-                        # need padding for first h_s values of MA. First values are not vital for our analysis
-                        window = np.concatenate((np.zeros(h_s), data[key][n, 0 : length_item + h_s]))
-                        ma = np.convolve(window, np.ones(s), 'valid') / s # convolute moving average
-                        sequence[n, :, feat_number] = ma[1:] # first value is discarded
-                    continue
-            else: # parameter is repeated to length of item
-                print("parameter ", key," with lag ", int(name[4:]), " at column ", feat_number)
-                sequence[:,:,feat_number] = np.repeat(data[key][:], length_item, axis=0)
+                # Funktioniert nicht !!!! NN kann keine korrekte Kategorisierung erlernen
+                
+                # time series in ipeaks contains categories of waves and peaks of ecg
+                # each sample has a categorical value
+                # ipeaks: labels for PQRST peaks: P(1), Q(2), R(3), S(4), T(5)
+                # A zero lablel is output otherwise ... to fin R-peaks use sequence == 3
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                bc = data[key][:, int(name[4:]) : length_item + int(name[4:])]
+                bc = bc==3 # binary categorizing of r-peaks
+                ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                ds = int(samplerate/ds_samplerate) # downsampling ratio
+                # seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), False) # True False classification
+                seq = np.full((len(bc[:,0]), int(len(bc[0,:])/ds)), 0.) # 0 1 classification float
+                gauss = gaussian(np.linspace(-3, 3, ds*5), 0, 1) * 1. # gaussian to overlay over r-peak
+                for example in range(len(bc[:,0])): # loop over all examples
+                    for sample in range(len(seq[0,:])): # loop over all downsamples
+                        # seq[example, sample] = np.any(bc[example, sample*ds:sample*ds+ds-1]) # window of 8 samples. If any is true, seq is true
+                        if np.any(bc[example, sample*ds:sample*ds+ds-1]): # window of 8 samples. If any is 1, seq is 1
+                            seq[example, sample] = 1.
+                    conv_seq = np.convolve(seq[example, :], gauss, mode='same')
+                    # print(np.shape(conv_seq))
+                    seq[example, :] += conv_seq
+                    seq[example, :] = np.clip(seq[example, :], 0, 1)
+                dic_seq[key+name] = seq
+                print(np.shape(dic_seq[key+name]))
+            if key == 'words': # transform categories of words into timeseries length
+                
+                # diese categorisierung nachbesser
+                
+                amount_cat = len(data[key][0]) # Anzahl an Kategorien in Zeitreihe
+                # print(data[key][0])
+                # print(np.shape(data[key][0]))
+                for n in range(len(sequence[:,0,0])): # loop over all examples
+                    sequence[n,:,feat_number:feat_number+amount_cat] = np.full(
+                        np.shape(sequence[n,:,feat_number:feat_number+amount_cat]),
+                        data[key][n]
+                    )
+                feat_number += amount_cat - 1
+            if key == 'symbols': # Transform into one-hot vector
+                
+                # diese categorisierung nachbesser
+                # ist noch von BBI analyse
+                # sprich jede x-Stelle ist einem Beat zugeordnet
+                
+                # wir nutzen Funktionen geschrieben in Matlab
+                # Gecodet von matthias
+                
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                
+                # Cutting BBI fitting our needs
+                # lower bound / starting point of BBI time series. Defined by lag in samples / data points
+                lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
+                # upper bound / ending point of BBI
+                up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+                BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+                BBI_list = [] # saving in a list allows different length of sequences
+                for n in range(len(BBI[:,0])):
+                    bbi = BBI[n,:]
+                    BBI_list.append(bbi[~(bbi==0)])
+                
+                # Extracting symbols from cut BBI
+                symbols, words = calc_symboldynamics(BBI_list) # Outputs lists of arrays. Symbols have different length
+                
+                # # Padding zeros to timeseries for regular array construction
+                # max_len_sym = max([len(a) for a in symbols]) # length of longest time series
+                # if symbols_size == 0: # check if BBI_size was set. If not we are in training
+                #     pad_size = 1
+                #     symbols_size = max_len_sym + pad_size # BBI_size was never sat. good padding to include worst case
+                # else:
+                #     if symbols_size-max_len_sym<0: # check if worst case was pessimist enough. In test phase
+                #         SyntaxError("pad_size four lines above is too small. Raise by: ", -symbols_size-max_len_sym)
+                # symbols_arr = np.full((len(symbols), symbols_size), int(4), dtype=int) # -1 array
+                # for row in range(len(symbols)): # loop over all rows in BBI array
+                #     symbols_arr[row, -len(symbols[row]):] = symbols[row]
+                
+                # Upsampling to length_item / ds_ratio
+                ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                ds = int(samplerate/ds_samplerate) # downsampling ratio
+                sym_up = np.full((len(symbols), int(length_item/ds)), int(10)) # array of 10s. After Upsampling no 10s expected
+                print("Shape of sym_up: ", np.shape(sym_up))
+                print("Type of sym_up: ", type(sym_up))
+                for example in range(len(BBI_list)): # extract BBI of example in ms
+                    BBI = np.array(BBI_list[example] / 1000 * ds_samplerate, dtype=int) # transform values into sample (of down_samplerate)
+                    BBI = np.cumsum(BBI) # cummulation BBI
+                    sym_up[example, :BBI[0]] = symbols[example][0] # values before first BBI
+                    for n in range(len(BBI)-1): # loop over single points of BBI and symbols
+                        sym_up[example, BBI[n]:BBI[n+1]] = symbols[example][n]
+                    sym_up[example, BBI[n+1]:] = symbols[example][n+1] # values after last BBI
+                print("Shape of sym_up: ", np.shape(sym_up))
+                print("Type of sym_up: ", type(sym_up))
+                print("Type of sym_up elements: ", type(sym_up[0,0]))
+                # Transforming multilabel timeseries into one-hot vectors
+                # layer = K.layers.CategoryEncoding(num_tokens = len(np.unique(sym_up)), output_mode="one_hot")
+                # sym_ohv = np.zeros((len(symbols), int(length_item/ds), len(np.unique(sym_up))), dtype=int)
+                # for n in range(len(sym_ohv[:,0,0])): # loop over examples
+                #     sym_ohv[n,:,:] = layer(sym_up[n,:])
+                # print("Shape of sym_ohv: ", np.shape(sym_ohv))
+                # print("Type of sym_ohv: ", type(sym_ohv[0,0,0]))
+                # print(sym_ohv[0,:,:])
+                
+                
+                dic_seq[key+name] = sym_up
+                # exit()
+                
+                # sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item+int(name[4:])]
+                # amount_cat = len(np.unique(data[key][:])) # Anzahl an Kategorien in Zeitreihe
+                # seq_sy = np.zeros((np.shape(data[key])[0], length_item, amount_cat)) # prebuilding empty sequence
+                # layer = K.layers.CategoryEncoding(num_tokens = amount_cat, output_mode="one_hot")
+                # for n in range(len(seq_sy[:,0,0])):
+                #     seq_sy[n,:,:] = layer(sequence[n,:,feat_number])
+                # sequence[:,:, feat_number:feat_number+amount_cat] = seq_sy
+                feat_number += 1
+            if key == 'ECG': # check if feature is of lag nature
+                print("feature: lag ", int(name[4:]), "at column ", feat_number)
+                # sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item + int(name[4:])]
+                # sequence[:,:,feat_number] *= 100 # min-max scaling by hand
+                seq = data[key][:, int(name[4:]) : length_item + int(name[4:])]
+                seq *= 100 # min-max scaling by hand
+                dic_seq[key+name] = seq
+                print(np.shape(dic_seq[key+name]))                    
                 continue
-    if key=='ECG' or key=='BBI' or key=='RP' or key=='Tachy':
-        return dic_seq
-    else:
-        return sequence
+            # calculation with convolution of padded interval and sequence of ones
+            if key == 'moving average': # Calculating moving average of half second before and after. Here: 1000Hz
+                # https://stackoverflow.com/questions/14313510/how-to-calculate-rolling-moving-average-using-python-numpy-scipy
+                print("feature: moving average at column ", feat_number)
+                ma_win = float(name) # window of MA in seconds
+                s = int(samplerate*ma_win)
+                h_s = int(s/2) # half of the window length. important to for getting padding around interval of interest
+                # padding with points from timeseries. This way more information in feature
+                for n in range(np.shape(sequence)[0]): # loop over ecgs
+                    # convolution of interval of interest and sequence of ones with length samplerate
+                    # need padding for first h_s values of MA. First values are not vital for our analysis
+                    window = np.concatenate((np.zeros(h_s), data[key][n, 0 : length_item + h_s]))
+                    ma = np.convolve(window, np.ones(s), 'valid') / s # convolute moving average
+                    sequence[n, :, feat_number] = ma[1:] # first value is discarded
+                continue
+    return dic_seq
 
 def kernel_check(X):
     """Plots a 2s snippet of ecg
@@ -384,12 +466,15 @@ def feat_check(X,y):
     k = 0
     for n in range(len(y)): # loop over all features by going through arrays in list
         plt.figure(2+n)
-        # print(np.shape(y[n]))
-        data = y[n]
-        plt.plot(list(range(len(data[0,:]))), data[0,:] + k)
+        if isinstance(y[n], list):
+            data = y[n][0]
+        else:
+            # print(np.shape(y[n]))
+            data = y[n][0,:]
+        plt.plot(list(range(len(data))), data + k)
         k = k + 0.0005
-    plt.savefig("Test-y" + str(n) +".png")
-    plt.close()
+        plt.savefig("Test-y-" + str(n) +".png")
+        plt.close()
 
 def check_data(X,y,X_test,y_test):
     # Check of Dataset
@@ -525,15 +610,27 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
                                                         name = "ECG_output",
                                                         activation="linear")( # sigmoid for between 0 and 1
                                                         branch_dic["branch{0}".format(x)])
-        elif 'BBI' in out_types[x]: # Das hier neumachen, nachdem constr_feat gemacht wurde
+        elif 'BBI' in out_types[x]: # Das hier neumachen, nachdem constr_feat gemacht wurde. funktioniert nicht gut
             branch_dic["branch{0}".format(x)] = LSTM(size)(pred)
             branch_dic["branch{0}".format(x)] = Dense(BBI_size, activation="linear", name="BBI_output")(branch_dic["branch{0}".format(x)])
         elif 'RP' in out_types[x]: # position of R-peak output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="sigmoid", name="RP_output")(branch_dic["branch{0}".format(x)])
-        elif 'Tachy' in out_types[x]: # Tachygram regression output
+        elif 'Tacho' in out_types[x]: # Tachogram regression output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
-            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tachy_output")(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])
+        elif 'classification' in out_types[x]: # symbols classification output
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # amount_cat = count_cat(x) # counts amount of unique labels in time series
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-descritpion
+            print("Anzahl an Kategorien: ", amount_cat)
+            if 'Symbols' in out_types[x]: # cases of different classifications
+                type_classification = 'Symbols_output'
+                # amount_cat = 4
+            elif 'Words' in out_types[x]:
+                type_classification = 'Words_output'
+            
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name=type_classification)(branch_dic["branch{0}".format(x)])
 
     
     # Concating outputs
@@ -797,6 +894,19 @@ def RP_loss(y_true, y_pred):
         # loss = tf.reduce_mean(sd, axis=-1)  # Note the `axis=-1`
         
         return loss
+
+def symbols_loss(y_true, y_pred):
+    """Custom LOSS function für symbol classification
+    
+    
+    """
+    # amount_cat = count_cat(k) # count amount of categories in current classification time series
+    cce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
+    # cce = K.losses.MeanSquaredError()
+    loss = cce(y_true, y_pred)
+    # tf.print("y_true: ", y_true)
+    
+    return loss
     
 def index(y):
     """transforms one-hot vector into index vector
@@ -940,10 +1050,46 @@ class DataGenerator(K.utils.Sequence):
 
         return X, {"ECG_output": y_ecg, "BBI_output": y_bbi}
     
-def calc_symboldynamics(beat_to_beat_intervals, a, mode):
-    """ Function to determine symbols for dynamics of beat-to-beat-intervals
+def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
+    """ Function to determine symbols and words for dynamics of beat-to-beat-intervals
     
-    a: float. parameters of symbol definition
-    mode: mode of differentiation
     
+    returns: symbols. list of arrays with different length. Contains Categories of BBI dynamics
     """
+    future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+    engine = future.result() # run engine in background
+    engine.cd(r'nl', nargout=0) # change directory to nl folder
+    symbols = [] # list of symbol sequences
+    words = [] # list of word distributions
+    for row in range(len(BBI[:])): # loop over examples
+        # insert one-dim array from list into matlab function
+        # function returns us symbols and words as output
+        result = engine.calc_symboldynamics(BBI[row], 0.01, "movdiff", nargout=2)
+        flatten = [result[1][n][0] for n in range(len(result[1]))] # flatten the list of matlab.doubles
+        # print(np.array(flatten,dtype=int))
+        symbols.append(np.array(flatten,dtype=int))
+        words.append(result[0])
+        
+        # Here we will add non-linear parameters calculated from symbols and words
+        
+    words = np.array(words, dtype=int)[:,:,0] # transform list of distributions into numpy array for faster processing
+    engine.quit()
+    
+    # Plot symbols and words
+    example = np.random.randint(len(symbols[:]))
+    
+    plt.figure(1)
+    plt.plot(list(range(len(symbols[example][:]))), symbols[example][:])
+    plt.title("timeseries of symbols")
+    plt.savefig("symbols.png")
+    plt.close()
+    
+    plt.figure(2)
+    plt.title("Distribution of words")
+    data_flat = words[example,:]
+    plt.hist(data_flat, bins=64)
+    plt.xlabel("time in ms")
+    plt.ylabel("occurence")
+    plt.savefig("words.png")
+    plt.close()
+    return symbols, words

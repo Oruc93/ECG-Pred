@@ -18,6 +18,7 @@ import warnings
 import mlflow
 import os
 from keras.callbacks import EarlyStopping
+import tensorflow
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
@@ -36,6 +37,7 @@ def train(total_epochs=250,
     :return:
     """
     warnings.filterwarnings("ignore")
+    
     
     with mlflow.start_run():  # separate run for each NN size and configuration
         
@@ -63,7 +65,7 @@ def train(total_epochs=250,
         
         # Extracting items from whole dataset
         X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
-        print(out_types)
+        print("Types of output: ", out_types)
         # exit()
         tl.kernel_check(X) # Plots 2s snippet of ecg
         
@@ -99,21 +101,23 @@ def train(total_epochs=250,
         # Compile model
         print("Compiling model...")
         model.compile(loss= {
-                        "Tachy_output": tl.ECG_loss,
+                        # "Tacho_output": tl.ECG_loss,
+                        "Symbols_output": tl.symbols_loss
                         # "ECG_output": tl.ECG_loss,
                         # "BBI_output": tl.BBI_loss
                         # "RP_output": tl.RP_loss
                         },# Loss-Funktion
                     optimizer='Adam',
                     metrics={
-                        "Tachy_output": 'MAE',
+                        # "Tacho_output": 'MAE',
                         # "ECG_output": 'MAE',
                         # "BBI_output": 'MAE'
                         # "RP_output": 'binary_accuracy'
+                        "Symbols_output": 'accuracy'
                         })
         
         # Callback
-        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'Tachy_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        escb = EarlyStopping(monitor='accuracy', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
         
         # Train model on training set
         print("Training model...")
