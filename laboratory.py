@@ -29,9 +29,9 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 
 train(NNsize=int(2**4), 
       total_epochs=50, 
-      length_item= 2**15, # raise this by using generator for data input in NN. Hopefully
+      length_item= 2**18, # Minimum 2**12. Because calc_symbols needs at leat 2 beats
       # INPUT_name = {"symbols": ["lag 0"]},
-      OUTPUT_name = {'symbols': ["lag 0"]},# 'RP': ["lag 0"]},# ,  "BBI": ["lag 0"]},# "ECG": ["lag 0"], {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"] 'Tacho': ["lag 0"], 
+      OUTPUT_name = {'symbolsC': ["lag 0"]},# 'RP': ["lag 0"]},# ,  "BBI": ["lag 0"]},# "ECG": ["lag 0"], {"BBI":["lag 0"], "symbols": ["lag 0"], "words": ["lag 0"]}, #  "BBI": ["lag 0"] 'Tacho': ["lag 0"], 
       Arch = "Conv-AE-LSTM-P") # "LSTM-AE")
 
 # for N in range(16,18,1):

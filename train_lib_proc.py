@@ -88,7 +88,7 @@ def memorize(filename, dataset):
     data = {} # dictionary containing data
     for name in dataset:  # loop over datasets named in list
         print("Memorizing timeseries: ", name)
-        if name in ["symbols", "words", "forbword", "fwshannon", "fwrenyi 0.25",
+        if name in ["symbolsR", "symbolsC", "words", "forbword", "fwshannon", "fwrenyi 0.25",
                     "fwrenyi 4", "wsdvar", "wpsum 02", 
                     "wpsum 13", "plvar 5", "plvar 10", 
                     "plvar 20", "phvar 20", "phvar 50", "phvar 100"]: # we construct non-linear parameters from BBI
@@ -165,7 +165,8 @@ def output_type(dic_seq, OUTPUT_name):
     """
     dic_types = {
         "ECG": "regressionECG", "MA": "regressionMA", "RP": "classificationRP", "BBI": "regressionBBI", 
-        "symbols": "classificationSymbols", "words": "distributionWords",
+        "symbolsR": "regressionSymbols",
+        "symbolsC": "classificationSymbols", "words": "distributionWords",
         "Tacho": "regressionTacho",
         "forbword": "parameter", "fwshannon": "parameter", "fwrenyi 0.25": "parameter",
         "fwrenyi 4": "parameter", "wsdvar": "parameter", "wpsum 02": "parameter", 
@@ -181,7 +182,7 @@ def output_type(dic_seq, OUTPUT_name):
                 # if key == 'RP': # Check ob Symbole einbezogen werden
                 #     out_types.append(dic_types[key] + str(0)) # number columns containing label
                 #     # Important for initializing model, loss function and plotting output
-                if key == 'symbols': # Check ob Symbole einbezogen werden
+                if key == 'symbolsC': # Check ob Symbole einbezogen werden mit Klassifikation
                     out_types.append(dic_types[key] + str(len(np.unique(dic_seq[key+name])))) # number columns containing label
                     # out_types.append(dic_types[key] + str(len(dic_seq[key+name][0,0,:]))) # number columns containing label
                     # out_types.append(dic_types[key] + str(1))
@@ -335,7 +336,7 @@ def constr_feat(data, NAME, length_item):
                         data[key][n]
                     )
                 feat_number += amount_cat - 1
-            if key == 'symbols': # Transform into one-hot vector
+            if 'symbols' in key: # Transform into one-hot vector
                 
                 # diese categorisierung nachbesser
                 # ist noch von BBI analyse
@@ -619,19 +620,16 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
         elif 'Tacho' in out_types[x]: # Tachogram regression output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])
-        elif 'classification' in out_types[x]: # symbols classification output
+        elif 'regressionSymbols' in out_types[x]: # symbols regression output
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Symbols_output")(branch_dic["branch{0}".format(x)])
+        elif 'classificationSymbols' in out_types[x]: # symbols classification output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             # amount_cat = count_cat(x) # counts amount of unique labels in time series
             amount_cat = extract_number(out_types[x]) # extracts number of categories from type-descritpion
             print("Anzahl an Kategorien: ", amount_cat)
-            if 'Symbols' in out_types[x]: # cases of different classifications
-                type_classification = 'Symbols_output'
-                # amount_cat = 4
-            elif 'Words' in out_types[x]:
-                type_classification = 'Words_output'
-            
-            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name=type_classification)(branch_dic["branch{0}".format(x)])
-
+            # branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
     
     # Concating outputs
     if len(out_types)>1: # check if multiple feature in output of NN
@@ -898,15 +896,59 @@ def RP_loss(y_true, y_pred):
 def symbols_loss(y_true, y_pred):
     """Custom LOSS function für symbol classification
     
-    
+    Here we use Sparse Crossentropy for every time step seperately and sum them up
+    The function returns a mean of the losses
     """
-    # amount_cat = count_cat(k) # count amount of categories in current classification time series
-    cce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
-    # cce = K.losses.MeanSquaredError()
-    loss = cce(y_true, y_pred)
-    # tf.print("y_true: ", y_true)
+    sce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
+    loss = tf.constant(0, dtype=tf.float16)
+    ds_samplerate = int(2**7) # We calculate CrossEntropy of at every second. This way we speed up training. There is a lot of redundancy in one second
+    for time in tf.range(y_true.shape[1], delta=ds_samplerate): # loop over time series with ds_samplerate steps
+        loss += sce(y_true[:,time], y_pred[:,time]) # sparse crossentropy of one time step. Very important. Crossentropy not defined for whole time series
+        
+    return loss/y_true.shape[1]
+
+def symbols_loss_reg(y_true, y_pred):
+        """
+        Custom LOSS function
+
+        Goal:  weighted sum of LOSSes of each Feature
+                - Weights are for different columns of Output Tensor
+                    - Weights decrease for each feature
+                    - this way the gradient for each additional feature is more gentle compared to previous features
+                    - this gives a loose order in which the LOSSes are minimized
+        """
+        
+        diff = (tf.cast(y_true, tf.float16) - y_pred)**2
+        
+        return tf.reduce_mean(diff, axis=-1)
+
+@tf.function
+def symbols_loss_tf(y_true, y_pred):
+    """Custom LOSS function für symbol classification
     
-    return loss
+    VERWORFEN
+    
+    Here we use Sparse Crossentropy for every time step seperately and sum them up
+    The function returns a mean of the losses
+    
+    As a TensorFlow graph for parallesation purposes
+    
+    Zu langsam im Aufbau des Trainings
+    """
+    def body(time, result):
+        sce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
+        result += sce(y_true[:,time], y_pred[:,time])
+        time += 1
+        return i, result
+
+    def cond(time, result):
+        return time < y_true.shape[1]
+    
+    result = tf.constant(0, dtype=tf.float16)
+    i = tf.constant(0)
+    _, result = tf.while_loop(cond, body, [i, result])
+    
+    return result/y_true.shape[1]
     
 def index(y):
     """transforms one-hot vector into index vector

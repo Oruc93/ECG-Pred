@@ -113,11 +113,12 @@ def train(total_epochs=250,
                         # "ECG_output": 'MAE',
                         # "BBI_output": 'MAE'
                         # "RP_output": 'binary_accuracy'
-                        "Symbols_output": 'accuracy'
+                        "Symbols_output": 'sparse_categorical_accuracy'
                         })
         
         # Callback
-        escb = EarlyStopping(monitor='accuracy', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        # escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/2),50), min_delta=0.001, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        escb = EarlyStopping(monitor='sparse_categorical_accuracy', patience=min(int(total_epochs/2),50), min_delta=0.0001, mode="max")
         
         # Train model on training set
         print("Training model...")
@@ -160,6 +161,10 @@ def train(total_epochs=250,
         example = np.random.randint(len(y_test[0][:,0]))
         plt.figure(1)
         plt.title("Full plot Truth and Pred of column 0")
+        if "classificationSymbols" in out_types[0]:
+                sparse_pred = np.array([0,1,2,3]) * y_pred[0]
+                sparse_pred = np.sum(sparse_pred, axis=-1)
+                y_pred[0] = sparse_pred
         plt.plot(list(range(len(y_test[0][0,:]))), y_test[0][example,:])
         plt.plot(list(range(len(y_pred[0][0,:]))), y_pred[0][example,:])
         if "ECG" in out_types[0]:
@@ -180,13 +185,20 @@ def train(total_epochs=250,
                 print("Could not find image name. Raise limit of rand.int above")
         plt.close()
         
-        # Preparation of output if classification of symbols and words was done
-        if "classificationS" in out_types or "distributionW" in out_types:
-            y_pred, dist_pred = tl.index(y_pred)
-            y_test, dist_test = tl.index(y_test)
-            print("Shape of final Output array: ", np.shape(y_test))
+        # # Preparation of output if classification of symbols and words was done
+        # if "classificationS" in out_types or "distributionW" in out_types:
+        #     y_pred, dist_pred = tl.index(y_pred)
+        #     y_test, dist_test = tl.index(y_test)
+        #     print("Shape of final Output array: ", np.shape(y_test))
             
         for k in range(len(y_pred)):
+            if "classificationSymbols" in out_types[k]:
+                sparse_pred = np.array([0,1,2,3]) * y_pred[k]
+                print("Shape of sparse_pred: ", np.shape(sparse_pred))
+                sparse_pred = np.sum(sparse_pred, axis=-1)
+                print("Shape of sparse_pred: ", np.shape(sparse_pred))
+                y_pred[k] = sparse_pred
+                print("Shape of y_pred: ", np.shape(y_pred[k]))
             plt.figure(k)
             plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
             plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
@@ -210,22 +222,22 @@ def train(total_epochs=250,
             mlflow.log_artifact(path_fig)  # links plot to MLFlow run
             plt.close()
         
-        # Plot of classification of symbols and words output
-        if "classificationS" in out_types or "distributionW" in out_types:
-            print("Shape of hist", np.shape(dist_pred))
-            # in our case we have four symbols in words of three
-            plt.figure(1)
-            plt.title(str("Zoomed Truth and Pred of column distribution of " + data_list[k+1]))
-            plt.bar(np.arange(len(dist_test[0,:]))-0.5, dist_test[example,:])
-            plt.bar(np.arange(len(dist_pred[0,:]))+0.5, dist_pred[example,:])
-            # plt.plot(list(range(len(X_test[0,:,0]))), X_test[0,:,0])
-            plt.legend(["y_Test", "Prediction", "X_Test 0"])
-            name = concat("./ZoomPlot-Col-",str(k+1))
-            plt.savefig(name)
-            path_fig = "./Prediction-Image/" + str(z)+ "-Zoom-col" + str(k+1) + ".png"
-            plt.savefig(path_fig)  # saves plot
-            mlflow.log_artifact(path_fig)  # links plot to MLFlow run
-            plt.close()
+        # # Plot of classification of symbols and words output
+        # if "classificationS" in out_types or "distributionW" in out_types:
+        #     print("Shape of hist", np.shape(dist_pred))
+        #     # in our case we have four symbols in words of three
+        #     plt.figure(1)
+        #     plt.title(str("Zoomed Truth and Pred of column distribution of " + data_list[k+1]))
+        #     plt.bar(np.arange(len(dist_test[0,:]))-0.5, dist_test[example,:])
+        #     plt.bar(np.arange(len(dist_pred[0,:]))+0.5, dist_pred[example,:])
+        #     # plt.plot(list(range(len(X_test[0,:,0]))), X_test[0,:,0])
+        #     plt.legend(["y_Test", "Prediction", "X_Test 0"])
+        #     name = concat("./ZoomPlot-Col-",str(k+1))
+        #     plt.savefig(name)
+        #     path_fig = "./Prediction-Image/" + str(z)+ "-Zoom-col" + str(k+1) + ".png"
+        #     plt.savefig(path_fig)  # saves plot
+        #     mlflow.log_artifact(path_fig)  # links plot to MLFlow run
+        #     plt.close()
             
         # Plot multiple examples
         for l in range(10):
