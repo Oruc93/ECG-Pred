@@ -30,30 +30,30 @@ addpath('./data')
 % 150 beats per minute = 400ms average of BBI
 % 37.5 beats per minute = 1600ms average of BBI
 sfecg_syn = 256; % samplerate of resulting ecg
-N = 522; % 512 beats are a bit more than 8 minutes
+N = 1536; % 512 beats are a bit more than 8 minutes
 Anoise = 0;
 % Maximum Variability for Fabians method without beat skips
 % hrmean = (150-37.5)/2+37.5;
 % hrstd = 14; 
 % Average human
 %hrmean = 70;
-hr_min = 60;
+hr_min = 50;
 hr_max = 80;
 hrstd = 6; % results in median HRV of about 50ms
 
 %% parameters for Fabians method
 sfecg = 1024; % samplerate of resulting ecg
 
-amount = 1000; % amount of generated ECGs
-ecg_duration = 5*60*1000; % duration of ECG interval in seconds
+amount = 1280; % amount of generated ECGs
+ecg_duration = 18*60*sfecg; % duration of ECG interval in samples
 
 %% Loop for Generation
 for ii = 1:amount
     fprintf("\nGenerating ECG number %i\n", ii)
     check = true;
     lap = 0;
-    hrmean = (hr_max - hr_min)*rand(1,1) + hr_min;
     while check % loop until a ECG with no beat skip is generated
+        hrmean = (hr_max - hr_min)*rand(1,1) + hr_min;
         % generate ECG with ECGSYN
         [s, ipeaks] = ecgsyn(sfecg_syn,N,Anoise,hrmean,hrstd);
         r_peaks = ipeaks==3; % Isolate R-peaks
@@ -81,7 +81,7 @@ for ii = 1:amount
         if sum(beat_type==2) == 0
             check = false;
         else
-            fprintf('At least one beat skipped. We try again')
+            fprintf('At least one beat skipped. We try again\n')
         end
         if lap > 12
             error("Cannot generate ECG without skipping beats. Try " + ...

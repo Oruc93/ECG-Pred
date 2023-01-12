@@ -88,12 +88,14 @@ def memorize(filename, dataset):
     data = {} # dictionary containing data
     for name in dataset:  # loop over datasets named in list
         print("Memorizing timeseries: ", name)
-        if name in ["symbolsR", "symbolsC", "words", "forbword", "fwshannon", "fwrenyi 0.25",
+        if name in ["symbolsR", "symbolsC", "words", 
+                    "parameters", "parametersT", "parametersS", "parametersW",
+                    "forbword", "fwshannon", "fwrenyi 0.25",
                     "fwrenyi 4", "wsdvar", "wpsum 02", 
                     "wpsum 13", "plvar 5", "plvar 10", 
                     "plvar 20", "phvar 20", "phvar 50", "phvar 100"]: # we construct non-linear parameters from BBI
                 data[name] = file["BBI"][:]  # loads pointer to dataset into variable
-                print("Shape of " + name, np.shape(data[name]))
+                print("Shape of " + name, np.shape(data[name]), " source data")
         else:
             try:
                 data[name] = file[name][:]  # loads pointer to dataset into variable
@@ -168,6 +170,7 @@ def output_type(dic_seq, OUTPUT_name):
         "symbolsR": "regressionSymbols",
         "symbolsC": "classificationSymbols", "words": "distributionWords",
         "Tacho": "regressionTacho",
+        "parameters": "parameter", "parametersT": "parameterT", "parametersS": "parameterS", "parametersW": "parameterW",
         "forbword": "parameter", "fwshannon": "parameter", "fwrenyi 0.25": "parameter",
         "fwrenyi 4": "parameter", "wsdvar": "parameter", "wpsum 02": "parameter", 
         "wpsum 13": "parameter", "plvar 5": "parameter", "plvar 10": "parameter", 
@@ -184,13 +187,15 @@ def output_type(dic_seq, OUTPUT_name):
                 #     # Important for initializing model, loss function and plotting output
                 if key == 'symbolsC': # Check ob Symbole einbezogen werden mit Klassifikation
                     out_types.append(dic_types[key] + str(len(np.unique(dic_seq[key+name])))) # number columns containing label
-                    # out_types.append(dic_types[key] + str(len(dic_seq[key+name][0,0,:]))) # number columns containing label
-                    # out_types.append(dic_types[key] + str(1))
                         # Important for initializing model, loss function and plotting output
                 elif key == 'words':
-                    for k in range(len(dic_seq[key+name][0])): # unique labels in timeseries
-                        out_types.append(dic_types[key] + str(k)) # number columns containing label
+                    out_types.append(dic_types[key] + str(len(dic_seq[key+name][0]))) # number columns containing counts of words
+                    # for k in range(len(dic_seq[key+name][0])): # unique labels in timeseries
+                    #     out_types.append(dic_types[key] + str(k)) # number columns containing label
                         # Important for initializing model, loss function and plotting output
+                elif 'parameters' in key:
+                    print(np.shape(dic_seq[key+name]))
+                    out_types.append(dic_types[key] + str(len(dic_seq[key+name][0]))) # number columns containing parameters
                 else:
                     out_types.append(dic_types[key]) # regression and parameter timeseries
             except:
@@ -210,22 +215,7 @@ def constr_feat(data, NAME, length_item):
     :param length_item: length of items given into the neural network
     :return sequence: numpy arrays of features. rows timeseries. Columns features
      """
-    # print("Data: ", data)
     print(NAME)
-    count = 0
-    # for key in NAME: # loop über Zeitreihen von Interesse
-    #     if isinstance(NAME[key], list): # Zählen der Anzahl an lag-Versionen der Zeitreihen
-    #         amount_cat = 1 # reset of category variable
-    #         if key == 'symbols': # Check ob Symbole einbezogen werden
-    #             amount_cat = 4 # Anzahl an Kategorien in Zeitreihe. len(np.unique(data[key][:]))
-    #         if key == 'words': # Check ob Symbole einbezogen werden
-    #             amount_cat = 64 # Anzahl an Kategorien in Zeitreihe. len(data[key][0])
-    #         count += len(NAME[key]) * amount_cat # Summation der Menge an einbezogenen Zeitreihen
-    #     else:
-    #         Warning("Value of key is not a list", key)
-    # print("Number of columns: ", count)
-    # print(data)
-    # sequence = np.zeros((np.shape(data[key])[0], length_item, count)) # prebuilding empty sequence
     dic_seq = {}
     global symbols_size # saves size of BBI arrays globally. Is needed in NN construction
     if not('symbols_size' in globals()): # check if BBI_size exists globally
@@ -323,24 +313,8 @@ def constr_feat(data, NAME, length_item):
                     seq[example, :] = np.clip(seq[example, :], 0, 1)
                 dic_seq[key+name] = seq
                 print(np.shape(dic_seq[key+name]))
-            if key == 'words': # transform categories of words into timeseries length
-                
-                # diese categorisierung nachbesser
-                
-                amount_cat = len(data[key][0]) # Anzahl an Kategorien in Zeitreihe
-                # print(data[key][0])
-                # print(np.shape(data[key][0]))
-                for n in range(len(sequence[:,0,0])): # loop over all examples
-                    sequence[n,:,feat_number:feat_number+amount_cat] = np.full(
-                        np.shape(sequence[n,:,feat_number:feat_number+amount_cat]),
-                        data[key][n]
-                    )
-                feat_number += amount_cat - 1
-            if 'symbols' in key: # Transform into one-hot vector
-                
-                # diese categorisierung nachbesser
-                # ist noch von BBI analyse
-                # sprich jede x-Stelle ist einem Beat zugeordnet
+            
+            if 'symbols' in key: # Transform into sparse categorical vector
                 
                 # wir nutzen Funktionen geschrieben in Matlab
                 # Gecodet von matthias
@@ -399,7 +373,7 @@ def constr_feat(data, NAME, length_item):
                 # print(sym_ohv[0,:,:])
                 
                 
-                dic_seq[key+name] = sym_up
+                dic_seq[key+name] = sym_up.astype(np.int32)
                 # exit()
                 
                 # sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item+int(name[4:])]
@@ -410,13 +384,102 @@ def constr_feat(data, NAME, length_item):
                 #     seq_sy[n,:,:] = layer(sequence[n,:,feat_number])
                 # sequence[:,:, feat_number:feat_number+amount_cat] = seq_sy
                 feat_number += 1
+                
+            if key == 'words': # combine symbol dynamics into 3 letter words
+                
+                # wir nutzen Funktionen geschrieben in Matlab
+                # Gecodet von matthias
+                
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                
+                # Cutting BBI fitting our needs
+                # lower bound / starting point of BBI time series. Defined by lag in samples / data points
+                lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
+                # upper bound / ending point of BBI
+                up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+                BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+                BBI_list = [] # saving in a list allows different length of sequences
+                for n in range(len(BBI[:,0])):
+                    bbi = BBI[n,:]
+                    BBI_list.append(bbi[~(bbi==0)])
+                
+                # Extracting symbols from cut BBI
+                symbols, words = calc_symboldynamics(BBI_list) # Outputs lists of arrays. Symbols have different length
+                
+                print(words)
+                print(np.shape(words))
+                
+                dic_seq[key+name] = words
+                feat_number += 1
+                
+            if 'parameters' in key: # calculate non-linear parameters from BBI, symbols and words
+                
+                # wir nutzen Funktionen geschrieben in Matlab
+                # Gecodet von matthias
+                
+                print("feature: lag ", int(name[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
+                
+                # Cutting BBI fitting our needs
+                # lower bound / starting point of BBI time series. Defined by lag in samples / data points
+                lb_BBI = np.where(np.cumsum(data[key], axis=1) >= float(name[4:])/samplerate*1000, data[key], 0)
+                # upper bound / ending point of BBI
+                up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+                BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+                BBI_list = [] # saving in a list allows different length of sequences
+                for n in range(len(BBI[:,0])):
+                    bbi = BBI[n,:]
+                    BBI_list.append(bbi[~(bbi==0)])
+                
+                # Extracting symbols from cut BBI
+                symbols, words = calc_symboldynamics(BBI_list) # Outputs lists of arrays. Symbols have different length
+
+                if key == 'parametersT':
+                    # BBI parameters plvar and phvar
+                    plvar_5_param, plvar_10_param, plvar_20_param = plvar(BBI_list)
+                    phvar_20_param, phvar_50_param, phvar_100_param = phvar(BBI_list)
+                    param_list = [plvar_5_param, plvar_10_param, plvar_20_param, 
+                                    phvar_20_param, phvar_50_param, phvar_100_param
+                                    ]
+                elif key == 'parametersS':
+                    # symbols parameter wsdvar
+                    wsdvar_param = wsdvar(symbols)
+                    param_list = [wsdvar_param]
+                elif key == 'parametersW':
+                    # words parameters
+                    forbword, fwshannon_param, fwrenyi_025_param, fwrenyi_4_param, wpsum02_param, wpsum13_param = words_parameters(words)
+                    param_list = [forbword, fwshannon_param, 
+                                    fwrenyi_025_param, fwrenyi_4_param, 
+                                    wpsum02_param, wpsum13_param]
+                else:
+                    # BBI parameters plvar and phvar
+                    plvar_5_param, plvar_10_param, plvar_20_param = plvar(BBI_list)
+                    phvar_20_param, phvar_50_param, phvar_100_param = phvar(BBI_list)
+                    
+                    # symbols parameter wsdvar
+                    wsdvar_param = wsdvar(symbols)
+                    
+                    # words parameters
+                    forbword, fwshannon_param, fwrenyi_025_param, fwrenyi_4_param, wpsum02_param, wpsum13_param = words_parameters(words)
+                    param_list = [plvar_5_param, plvar_10_param, plvar_20_param, 
+                                    phvar_20_param, phvar_50_param, phvar_100_param,
+                                    wsdvar_param,
+                                    forbword, fwshannon_param, 
+                                    fwrenyi_025_param, fwrenyi_4_param, 
+                                    wpsum02_param, wpsum13_param]
+                    
+                param_arr = np.transpose(np.array(param_list, 
+                                     dtype=np.float16))
+                print("Shape of param_arr: ", np.shape(param_arr))
+                dic_seq[key+name] = param_arr
+                feat_number += 1
+                                
             if key == 'ECG': # check if feature is of lag nature
                 print("feature: lag ", int(name[4:]), "at column ", feat_number)
                 # sequence[:,:,feat_number] = data[key][:, int(name[4:]) : length_item + int(name[4:])]
                 # sequence[:,:,feat_number] *= 100 # min-max scaling by hand
                 seq = data[key][:, int(name[4:]) : length_item + int(name[4:])]
                 seq *= 100 # min-max scaling by hand
-                dic_seq[key+name] = seq
+                dic_seq[key+name] = seq# np.reshape(seq, (np.shape(seq)[0], np.shape(seq)[1], 1))
                 print(np.shape(dic_seq[key+name]))                    
                 continue
             # calculation with convolution of padded interval and sequence of ones
@@ -576,8 +639,8 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # Dense branch
     dense_br = Dense(size)(encoder)
     # concat
-    con_br = concatenate([lstm_br, dense_br])
-    pred = Dense(size)(con_br)
+    pred = concatenate([lstm_br, dense_br])
+    # pred = Dense(size)(con_br)
     
         
     # branching of the pseudo-tasks
@@ -612,38 +675,70 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
                                                         activation="linear")( # sigmoid for between 0 and 1
                                                         branch_dic["branch{0}".format(x)])
         elif 'BBI' in out_types[x]: # Das hier neumachen, nachdem constr_feat gemacht wurde. funktioniert nicht gut
+            # this approach didnt work well enough. Please discard
             branch_dic["branch{0}".format(x)] = LSTM(size)(pred)
             branch_dic["branch{0}".format(x)] = Dense(BBI_size, activation="linear", name="BBI_output")(branch_dic["branch{0}".format(x)])
         elif 'RP' in out_types[x]: # position of R-peak output
+            # this approach didnt work well enough. Please discard
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="sigmoid", name="RP_output")(branch_dic["branch{0}".format(x)])
         elif 'Tacho' in out_types[x]: # Tachogram regression output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])
         elif 'regressionSymbols' in out_types[x]: # symbols regression output
+            # this approach didnt work well enough. Please discard
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Symbols_output")(branch_dic["branch{0}".format(x)])
         elif 'classificationSymbols' in out_types[x]: # symbols classification output
             branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
-            # amount_cat = count_cat(x) # counts amount of unique labels in time series
-            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-descritpion
-            print("Anzahl an Kategorien: ", amount_cat)
-            # branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Symbol-Kategorien: ", amount_cat)
             branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
-    
+        elif 'distributionWords' in out_types[x]: # words distribution output
+            branch_dic["branch{0}".format(x)] = concatenate([pred, branch_dic["branch{0}".format(x-1)]])
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(8, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            
+            # option below works fine. 87% symbols. No rare class detection. Words distrubtion resembles what should be 
+            # And combined with Symbol detection it is fitted to each example
+            # Interesting: Symbols detection improves drastically after 15 epochs. Way later than single feature training
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(4, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            # print("Anzahl an Word-bins: ", amount_cat)
+            # branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='Words_output')(branch_dic["branch{0}".format(x)])
+            
+            # try this next. Seems to work better. Less parameters than above
+            branch_dic["branch{0}".format(x)] = LSTM(4, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(1, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Word-bins: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='Words_output')(branch_dic["branch{0}".format(x)])
+            
+            # branch_dic["branch{0}".format(x)] = LSTM(amount_cat, activation='relu' , name='Words_output')(branch_dic["branch{0}".format(x)]) # LSTM Output layer gibt nan aus
+        elif 'parameter' in out_types[x]: # non-linear parameters output
+            branch_dic["branch{0}".format(x)] = LSTM(4, return_sequences=True)(pred)
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(1, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Word-bins: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='parameter_output')(branch_dic["branch{0}".format(x)])
+
     # Concating outputs
     if len(out_types)>1: # check if multiple feature in output of NN
         # concatenate layer of the branch outputs
         print("Branch Werte")
-        print(branch_dic.values())
-        # con = concatenate(branch_dic.values())
-        # dense calculates, so we use it in the branches
-        # this way each branch is independent from each other in the decoding part
-        # and focuses on its given feature
+        print("List of branches", branch_dic.values())
         model = Model(Input_encoder, branch_dic.values())
     else: # single feature in output
         print("Branch Werte")
-        print(branch_dic.values())
+        print("List of branches", branch_dic.values())
         print(branch_dic["branch0"])
         model = Model(Input_encoder, branch_dic["branch0"])
         
@@ -651,7 +746,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
     return model, ds_samplerate
 
-def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2):
+def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**0):
     """ This NN has the goal to maximize the compression in the latent space
     
     builds Autoencoder for different sizes and number of features
@@ -679,9 +774,9 @@ def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2
     # our input layer
     Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
     # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
-    ds_step = 2 # factor of down- and upsampling of ecg timeseries
-    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling. 128Hz wird fürs erste als untere Grenze angenommen
-    orig_a_f = int(2**4) # first filter amount. low amount of filters ensures faster learning and training
+    ds_step = int(2**2) # factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**6) # Ziel samplerate beim Downsampling. 128Hz wird fürs erste als untere Grenze angenommen
+    orig_a_f = int(2**0) # first filter amount. low amount of filters ensures faster learning and training
     amount_filter = orig_a_f
     encoder = Conv1D(amount_filter, # number of columns in output. filters
                      samplerate*2, # kernel size. We look at 2s snippets
@@ -699,7 +794,7 @@ def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2
     k = ds_step
     print("Downsampled to: ", int(samplerate/k), " Hz") # A samplerate under 100 Hz will decrease analysis quality. 10.4258/hir.2018.24.3.198
     while ds_samplerate < int(samplerate/k):
-        amount_filter /= 2 # lowest amount of filter with good result is 4
+        amount_filter *= 2 # lowest amount of filter with good result is 4
         encoder = Conv1D(amount_filter, # number of columns in output. filters
                      int(samplerate/k), # kernel size. We look at 2s snippets
                      padding = "same", # only applies kernel if it fits on input. No Padding
@@ -711,9 +806,9 @@ def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2
         k *= ds_step
         print("Downsampled to: ", int(samplerate/k), " Hz")
     
-    pred = Dense(size)(encoder)
-    pred = LSTM(size, return_sequences=True)(pred) # vielleicht amount_filter statt size
-    pred = Dense(size)(pred)
+    # pred = Dense(size)(encoder)
+    pred = LSTM(size, return_sequences=True)(encoder) # vielleicht amount_filter statt size
+    # pred = Dense(size)(pred)
     # size so klein wie möglich halten und damit Anzahl Parameter am Flaschenhals hier verringern
     # NN zur Kompression zwingen und damit höheres Verständnis bei erfolgreicher Bearbeitung
     
@@ -727,24 +822,23 @@ def setup_maxKomp_Conv_AE_LSTM_P(input_shape, number_feat, samplerate, size=2**2
         branch_dic["branch{0}".format(x)] = Conv1D(amount_filter,
                                                     1,
                                                     strides=1,
-                                                    padding = "same",
-                                                    activation="relu")(
+                                                    padding = "same")(
                                                     pred)
         branch_dic["branch{0}".format(x)] = UpSampling1D(ds_step)(branch_dic["branch{0}".format(x)])
-        amount_filter *= 2
-        while amount_filter <= orig_a_f:
+        amount_filter /= 2
+        while amount_filter >= orig_a_f:
             branch_dic["branch{0}".format(x)] = Conv1D(amount_filter,
                                                         1,
                                                         strides=1,
-                                                        padding = "same",
-                                                        activation="relu")(
+                                                        padding = "same")(
                                                         branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = UpSampling1D(ds_step)(branch_dic["branch{0}".format(x)])
-            amount_filter *= 2
+            amount_filter /= 2
         branch_dic["branch{0}".format(x)] = Conv1D(1,
                                                     1,
                                                     strides=1,
                                                     padding = "same",
+                                                    name = "ECG_output",
                                                     activation="linear")( # sigmoid for between 0 and 1
                                                     branch_dic["branch{0}".format(x)])
     print("number of feat: ",number_feat)
@@ -897,15 +991,31 @@ def symbols_loss(y_true, y_pred):
     """Custom LOSS function für symbol classification
     
     Here we use Sparse Crossentropy for every time step seperately and sum them up
+    For higher efficiency
     The function returns a mean of the losses
     """
     sce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
     loss = tf.constant(0, dtype=tf.float16)
-    ds_samplerate = int(2**7) # We calculate CrossEntropy of at every second. This way we speed up training. There is a lot of redundancy in one second
-    for time in tf.range(y_true.shape[1], delta=ds_samplerate): # loop over time series with ds_samplerate steps
-        loss += sce(y_true[:,time], y_pred[:,time]) # sparse crossentropy of one time step. Very important. Crossentropy not defined for whole time series
-        
-    return loss/y_true.shape[1]
+    ds_samplerate = int(2**7)
+    copies = tf.constant(2, dtype=tf.int16) # number of copies added to examples per rare class
+    additions = tf.constant(0, dtype=tf.int32) # total number of copies of rare classes added to examples
+    # We calculate CrossEntropy of at every half second. This way we speed up training. There is a lot of redundancy in one second
+    for time in tf.range(y_true.shape[1], delta=int(ds_samplerate/2)): # loop over time series with ds_samplerate steps
+        # "2" and "0" occur rarely and need to be weighted heavier to be learned properly
+        # For this we find the classes and construct a boolean mask
+        zeros = tf.equal(y_true[:,time], tf.zeros(tf.shape(y_true[:,time]), dtype=tf.int32)) # find zero elements
+        twos = tf.equal(y_true[:,time], tf.fill(tf.shape(y_true[:,time]), 2)) # find two elements
+        rare_classes = tf.logical_or(zeros, twos) # combine both masks
+        additions = tf.reduce_sum(tf.cast(rare_classes, tf.int32)) # we count how often we find "2" and "0"
+        add_class_true = tf.repeat(tf.boolean_mask(y_true[:,time], rare_classes), copies) # create multiple copies of rare classes
+        stack_true = tf.concat([y_true[:,time], add_class_true], axis=0) # stack copies onto original point in time
+        add_class_pred = tf.repeat(tf.boolean_mask(y_pred[:,time], rare_classes), copies, axis=0) # create multiple copies of rare classes
+        stack_pred = tf.concat([y_pred[:,time], add_class_pred], axis=0) # stack copies onto original point in time
+        loss += sce(stack_true, stack_pred) # sparse crossentropy of one time step. Very important. Crossentropy not defined for whole time series
+    
+    # we normalize loss by size of batch and number of added copies
+    # Additional we factor we loss with 500. This way it is comparable to the Words-distribution-loss
+    return 500*(loss/tf.cast(y_true.shape[1] + additions/y_true.shape[1], tf.float16))
 
 def symbols_loss_reg(y_true, y_pred):
         """
@@ -1096,7 +1206,8 @@ def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
     """ Function to determine symbols and words for dynamics of beat-to-beat-intervals
     
     
-    returns: symbols. list of arrays with different length. Contains Categories of BBI dynamics
+    returns:    symbols. list of arrays with different length. Contains Categories of BBI dynamics
+                words. distribution of three letter words consisting of 4-category symbols
     """
     future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
     engine = future.result() # run engine in background
@@ -1128,10 +1239,116 @@ def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
     
     plt.figure(2)
     plt.title("Distribution of words")
-    data_flat = words[example,:]
-    plt.hist(data_flat, bins=64)
+    plt.bar(np.linspace(0,64,num=64), words[example,:])
     plt.xlabel("time in ms")
     plt.ylabel("occurence")
     plt.savefig("words.png")
     plt.close()
     return symbols, words
+
+def plvar(BBI):
+    """Function to calculate plvar parameters of BBI
+    Input: BBI. list of numpy.arrays with different length. timeseries of beat-to-beat-intervalls for each beat no interpolation
+    
+    returns: plvar_5_param, plvar_10_param, plvar_20_param. numpy array of np.float16"""
+    future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+    engine = future.result() # run engine in background
+    engine.cd(r'nl', nargout=0) # change directory to nl folder
+    plvar_5_param = [] # list of parameters
+    plvar_10_param  = [] # list of parameters
+    plvar_20_param = [] # list of parameters
+    for row in range(len(BBI[:])): # loop over examples
+        # insert one-dim array from list into matlab function
+        # function returns us parameter as output
+        plvar_5_param.append(engine.plvar(BBI[row], 5, nargout=1))
+        plvar_10_param.append(engine.plvar(BBI[row], 10, nargout=1))
+        plvar_20_param.append(engine.plvar(BBI[row], 20, nargout=1))
+    plvar_5_param = np.array(plvar_5_param, dtype=np.float16)
+    plvar_10_param = np.array(plvar_10_param, dtype=np.float16)
+    plvar_20_param = np.array(plvar_20_param, dtype=np.float16)
+    
+    return plvar_5_param, plvar_10_param, plvar_20_param
+
+def phvar(BBI):
+    """Function to calculate phvar parameters of BBI
+    Input: BBI. list of numpy.arrays with different length. timeseries of beat-to-beat-intervalls for each beat no interpolation
+    
+    returns: phvar_20_param, phvar_50_param, phvar_100_param. numpy array of np.float16"""
+    future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+    engine = future.result() # run engine in background
+    engine.cd(r'nl', nargout=0) # change directory to nl folder
+    phvar_20_param = [] # list of parameters
+    phvar_50_param  = [] # list of parameters
+    phvar_100_param = [] # list of parameters
+    for row in range(len(BBI[:])): # loop over examples
+        # insert one-dim array from list into matlab function
+        # function returns us parameter as output
+        phvar_20_param.append(engine.plvar(BBI[row], 5, nargout=1))
+        phvar_50_param.append(engine.plvar(BBI[row], 10, nargout=1))
+        phvar_100_param.append(engine.plvar(BBI[row], 20, nargout=1))
+    phvar_20_param = np.array(phvar_20_param, dtype=np.float16)
+    phvar_50_param = np.array(phvar_50_param, dtype=np.float16)
+    phvar_100_param = np.array(phvar_100_param, dtype=np.float16)
+    
+    return phvar_20_param, phvar_50_param, phvar_100_param
+
+def wsdvar(symbols):
+    """Function to calculate wsdvar parameter of symbol dynamics
+    Input: symbols. list of numpy.arrays with different length. timeseries of symbols for each beat
+    
+    returns: wsdvar. numpy array of np.float16"""
+    future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+    engine = future.result() # run engine in background
+    engine.cd(r'nl', nargout=0) # change directory to nl folder
+    wsdvar_param = [] # list of parameters
+    for row in range(len(symbols[:])): # loop over examples
+        # insert one-dim array from list into matlab function
+        # function returns us parameter as output
+        wsdvar_param.append(engine.wsdvar(symbols[row], nargout=1))
+    wsdvar_param = np.array(wsdvar_param, dtype=np.float16)
+    
+    return wsdvar_param
+
+def words_parameters(words):
+    """Function to calculate 
+    - forbidden words parameter 
+    - shannon entropy
+    - renyi entropy
+    - wpsum02
+    - wpsum13
+    
+    of words distribution
+    Input: words. numpy.array. distributions of 3 letter words of 4 category words
+    
+    returns:    forbword. numpy array of np.float16
+                fwshannon_param. numpy array of np.float16
+                fwrenyi_025_param, fwrenyi_4_param. numpy array of np.float16
+                wpsum02_param. numpy array of np.float16
+                wpsum13_param. numpy array of np.float16"""
+    future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+    engine = future.result() # run engine in background
+    engine.cd(r'nl', nargout=0) # change directory to nl folder
+    forbword = [] # list of parameters
+    fwshannon_param = [] # list of parameters
+    fwrenyi_025_param = [] # list of parameters
+    fwrenyi_4_param = [] # list of parameters
+    wpsum02_param = [] # list of parameters
+    wpsum13_param = [] # list of parameters
+    for row in range(len(words[:])): # loop over examples
+        # insert one-dim array from list into matlab function
+        # function returns us parameter as output
+        forbword.append(engine.forbidden_words(words[row], nargout=1))
+        fwshannon_param.append(engine.fwshannon(words[row].astype(np.float64), nargout=1)) # Very important matlab functions defined for float64 / double
+        fwrenyi_025_param.append(engine.fwrenyi(words[row].astype(np.float64), 0.25, nargout=1))
+        fwrenyi_4_param.append(engine.fwrenyi(words[row].astype(np.float64), 4., nargout=1))
+        wpsum02_param.append(engine.wpsum02(words[row], nargout=1))
+        wpsum13_param.append(engine.wpsum13(words[row], nargout=1))
+    wpsum13_param = np.array(wpsum13_param, dtype=np.float16)
+    wpsum02_param = np.array(wpsum02_param, dtype=np.float16)
+    fwrenyi_025_param = np.array(fwrenyi_025_param, dtype=np.float16)
+    fwrenyi_4_param = np.array(fwrenyi_4_param, dtype=np.float16)
+    fwshannon_param = np.array(fwshannon_param, dtype=np.float16)
+    forbword = np.array(forbword, dtype=np.float16)
+    
+    return forbword, fwshannon_param, fwrenyi_025_param, fwrenyi_4_param, wpsum02_param, wpsum13_param
+
