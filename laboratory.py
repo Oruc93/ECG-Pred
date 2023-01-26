@@ -13,7 +13,7 @@ from train_final import train
 
 
 # Set experiment active or create new one
-experiment = mlflow.set_experiment("Models for Forschungsbeleg - Symbol") # Conv-AE-LSTM-P good
+experiment = mlflow.set_experiment("Models for Forschungsbeleg - Tacho + Symbol - Icentia") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 # Starting a Run by calling train.py
@@ -27,11 +27,11 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 # NNsize: width of Input layer of NN
 # length_item: number of data points in items
 
-train(NNsize=int(2**4), 
-      total_epochs=100, 
-      length_item= 2**15, # Minimum 2**12. Because calc_symbols needs at leat 2 beats
+train(NNsize=int(2**7), 
+      total_epochs=200, 
+      length_item= 30,# 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
       # INPUT_name = {"symbols": ["lag 0"]},
-      OUTPUT_name = {'symbolsC': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+      OUTPUT_name = {'Tacho': ["lag 0"]}, # 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
       Arch = "Conv-AE-LSTM-P") # "LSTM-AE") "maxKomp-Conv-AE-LSTM-P")# 
 
 # for N in range(16,18,1):

@@ -36,15 +36,14 @@ def train(total_epochs=250,
     :return:
     """
     warnings.filterwarnings("ignore")
-    
-    
+         
     with mlflow.start_run():  # separate run for each NN size and configuration
         
         mlflow.tensorflow.autolog()  # automatically starts logging LOSS, metric and models
         # Setting Parameters of Run
         print("Setting Parameters for Run...")
         # Length of sequence
-        mlflow.log_param("sequence length", length_item)
+        mlflow.log_param("sequence length in s", length_item)
         mlflow.log_param("Input features", INPUT_name)  # Logs configuration of model features
         mlflow.log_param("Output features", OUTPUT_name)  # Logs configuration of model features
         mlflow.log_param("size of NN", NNsize)
@@ -53,23 +52,30 @@ def train(total_epochs=250,
         # Extracting dataset from h5 into numpy array
         data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned datasets
         data_list = tl.unique(data_list) # sorts out multiple occurences
-        data, samplerate = tl.memorize("./data/training.h5", data_list)
+        # data, samplerate = tl.memorize("./data/training.h5", data_list)
+        # data, samplerate = tl.memorize_MIT_data(data_list, length_item, 'training')
+        data, data_test, samplerate = tl.Icentia_memorize(100, length_item, data_list)
+        # exit()
+        
+        # readjust length_item according to samplerate
+        length_item = int(length_item*samplerate)
         
         print("Constructing training data ...")
         
         # Extracting items from whole dataset
         X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
         print("Types of output: ", out_types)
-        
         tl.feat_check(X,y) # Plots example of dataset and some features
-        
+        # exit()
         print("\nMemorize test data ...")
         # Extracting dataset from h5 into numpy array
-        data, samplerate = tl.memorize("./data/test.h5", data_list)
+        # data, samplerate = tl.memorize("./data/test.h5", data_list)
+        # data, samplerate = tl.memorize_MIT_data(data_list, length_item, 'test')
+        del data
+        data = data_test
         print("Constructing test data ...")
         # Extracting items from whole dataset
         X_test, y_test, out_types = tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
-        
         # tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
         mlflow.log_param("samplerate", samplerate) # samplerate in Hz
         
@@ -78,10 +84,6 @@ def train(total_epochs=250,
         if Arch == "Conv-AE-LSTM-P":
             model, ds_samplerate = tl.setup_Conv_AE_LSTM_P((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "Conv-AE-LSTM-P")  # logs type of architecture
-            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
-        elif Arch == "maxKomp-Conv-AE-LSTM-P":
-            model, ds_samplerate = tl.setup_maxKomp_Conv_AE_LSTM_P(np.shape(X)[1:], np.shape(y)[-1], int(samplerate))  # Conv Encoder. LSTM Decoder
-            mlflow.log_param("Architecture", "maxKomp-Conv-AE-LSTM-P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
 
         # print(np.shape(X)[1:])
@@ -121,15 +123,15 @@ def train(total_epochs=250,
         #                 "ECG_output": 'MAE',
         #                 }
         # Callback
-        # escb = EarlyStopping(monitor='Tacho_output_MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
-        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max")
+        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True)
         
         # Train model on training set
         print("Training model...")
         model.fit(X,  # sequence we're using for prediction
                   y,  # sequence we're predicting
                 batch_size=int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
-                # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
+                callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
         
         # tl.save_XY(X,y)
@@ -142,10 +144,10 @@ def train(total_epochs=250,
         
         # Evaluate trained model
         print("Evaluating model...")
-        model.evaluate(X_test, y_test, batch_size=int(np.shape(X)[0] / 10))
+        model.evaluate(X_test, y_test, batch_size=int(np.shape(X_test)[0] / 10))
         
         # Predict on test set and plot
-        y_pred = model.predict(X_test, batch_size=int(np.shape(X)[0] / 10))
+        y_pred = model.predict(X_test, batch_size=int(np.shape(X_test)[0] / 3))
         
         if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
             y_pred = [y_pred]
@@ -153,9 +155,13 @@ def train(total_epochs=250,
         # Transform outpur of sparse categorical from 4D time series into 1D time series
         for column in range(len(y_pred)): # loop over features
             if "classificationSymbols" in out_types[column]:
-                    sparse_pred = np.array([0,1,2,3]) * y_pred[column]
-                    sparse_pred = np.sum(sparse_pred, axis=-1)
-                    y_pred[column] = sparse_pred
+                    # sparse_pred = np.array([0,1,2,3]) * y_pred[column] # weighted sum of labels
+                    # sparse_pred = np.sum(sparse_pred, axis=-1)
+                    # y_pred[column] = sparse_pred
+                    print(np.shape(y_pred[column]))
+                    max_pred = np.argmax(y_pred[column], axis=-1)
+                    print(np.shape(max_pred))
+                    y_pred[column] = max_pred
         
         example = np.random.randint(len(y_test[0][:,0]))
         plt.figure(1)

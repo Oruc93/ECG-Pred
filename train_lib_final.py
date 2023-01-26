@@ -21,7 +21,8 @@ from tensorflow.keras.layers import (
 )
 from keras.models import Model
 import matlab.engine
-
+import MIT_reader as Mrd
+import Icentia11k_reader as Ird
 
 # print("Tensorflow version: ", tf.__version__)
 # exit()
@@ -31,7 +32,7 @@ abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
 os.chdir(dname)
 
-def unique(list1):
+def unique(list1: list):
     """Sorts out multiple occuring elements in list
 
     Args:
@@ -42,7 +43,7 @@ def unique(list1):
     """
     # initialize a null list
     unique_list = []
- 
+    
     # traverse for all elements
     for x in list1:
         # check if exists in unique_list or not
@@ -112,7 +113,101 @@ def memorize(filename, dataset):
     
     return data, samplerate # returns datasets
 
-def set_items(data, INPUT_name, OUTPUT_name, length_item):
+def memorize_MIT_data(data_list: list, T_or_T: str):
+    """Memorizes ecg data from database MIT-BIH Arrhythmia Database
+    Link: https://physionet.org/content/mitdb/1.0.0/
+    License: Open Data Commons Attribution License v1.0
+    ecgs are from Arrhytmia patients
+    sampled with 360 Hz
+    
+    Returns:
+        data: np.array, np.float16. one-channel ecgs time series
+    """
+    global samplerate
+    samplerate = 256
+    data, peaks, BBI = Mrd.load_data("data/MIT/mitdb", samplerate, T_or_T)# , length_item/1024)
+    print(np.shape(data))
+    plt.figure(1)
+    plt.plot(np.linspace(0, len(data[0,0:2000]), num=len(data[0,0:2000])), data[0,0:2000])
+    plt.plot(np.linspace(0, len(peaks[0,0:2000]), num=len(peaks[0,0:2000])), peaks[0,0:2000])
+    plt.savefig("MIT-ECG.png")
+    plt.close()
+    plt.plot()
+    
+    print(data_list)
+    data_dic = {}
+    for name in data_list:
+        if name == 'ECG':
+            data_dic['ECG'] = data/10000 # scaling to under order of 10
+        if name == 'Tacho':
+            data_dic['Tacho'] = peaks
+        if name in ["symbolsC", "words", 
+                    "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
+            data_dic[name] = BBI  # loads pointer to dataset into variable
+    
+    return data_dic, samplerate
+
+def Icentia_memorize(amount, length_item, data_list):
+    """This function loads ecgs and annotations of the downloaded files
+    Cuts them to a workable length
+    
+    Input:
+        amount. int. amount of ecgs for training
+        length_item. int. length of ecg examples in sample for 1024Hz
+        data_list. list of strings. Features of data for neural network
+    """
+    # readjust length_item according to samplerate 250Hz
+    length_item = int(length_item*250)
+    
+    # changing current working folder to directory of script
+    abspath = os.path.abspath(__file__)
+    dname = os.path.dirname(abspath)
+    os.chdir(dname)
+    local_path = os.getcwd() + '/data/Icentia11k/'
+    
+    # list_training, list_test = Ird.download(amount) # download files of ecgs and annotations
+    list_training, list_test = Ird.load_local(amount) # list local files of ecgs and annotations
+    
+    print("Reading ecg and annotations ...")
+    print("Reading training data...")
+    
+    # Load training data
+    data_training, peaks_training, BBI_training = Ird.load_clean_data(list_training, length_item)
+    data_test, peaks_test, BBI_test = Ird.load_clean_data(list_test, length_item)
+    
+    data_dic = {}
+    data_dic_test = {}
+    for name in data_list:
+        if name == 'ECG':
+            data_dic['ECG'] = data_training
+            data_dic_test['ECG'] = data_test
+        if name == 'Tacho':
+            data_dic['Tacho'] = peaks_training
+            data_dic_test['Tacho'] = peaks_test
+        if name in ["symbolsC", "words", 
+                    "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
+            data_dic[name] = BBI_training  # loads pointer to dataset into variable
+            data_dic_test[name] = BBI_test  # loads pointer to dataset into variable
+    
+    
+
+    import matplotlib.pyplot as plt
+    print(np.shape(data_training))
+    plt.figure(1)
+    plt.plot(np.linspace(0, len(data_training[0,0:2000]), num=len(data_training[0,0:2000])), data_training[0,0:2000])
+    # plt.plot(np.linspace(0, len(peaks[0,0:2000]), num=len(peaks[0,0:2000])), peaks[0,0:2000])
+    plt.savefig("Icentia11k-ECG.png")
+    plt.close()
+    plt.plot()
+    # some ecgs have low intensity and therefore low resolution of morphology. Maybe problematic
+    # but r-peaks clear, so HRV analysis should be easily possible
+    
+    global samplerate # samplerate of ecg in dataset after upsampling
+    samplerate = 256
+    
+    return data_dic, data_dic_test, samplerate
+
+def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
     """This function pulls items from datasets and separates them into input and output for training and test sets.
      
     Args:
@@ -134,6 +229,7 @@ def set_items(data, INPUT_name, OUTPUT_name, length_item):
     out_types = output_type(y, OUTPUT_name) # global list of types of output for loss and output layer
     y_list = [] # Sorting values of dictionary into list. Outputs need to be given to NN in list. Allows different formatted Truths
     for key in y.keys():
+        print("Shape of Output data for feature ", key, ": ", np.shape(y[key]))
         y_list.append(y[key])
     return X, y_list, out_types
 
@@ -199,7 +295,7 @@ def constr_feat(data, NAME, length_item):
         for lag in NAME[key]: # loop over lags and options found under key
             feat_number += 1
             # check if data is timeseries, distribution or parameter
-            print("Shape of data ", key, " : ", np.shape(data[key]))
+            print("Shape of source data for feature ", key, " : ", np.shape(data[key]))
             print("feature: lag ", int(lag[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
             
             if key == 'ECG': # check if feature is ECG timeseries
@@ -224,7 +320,10 @@ def constr_feat(data, NAME, length_item):
                     ts =  np.argwhere(rp[:,0]==n)[:,0] # position of r-peaks of example n in rp
                     rp_ts = rp[ts,1] # position of r-peaks in example n
                     y_ts = rp_ts[1:] - rp_ts[:-1] # calculate BBI between r-peaks. Exlude first point
-                    Tacho[n,:] = np.interp(list(range(len(Tacho[0,:]))), rp_ts[1:] / ratio, y_ts) # position r-peaks and interpolate Tachogram. x-axis in samples
+                    Tacho[n,:] = np.interp(list(range(len(Tacho[0,:]))), rp_ts[:-1] / ratio, y_ts) # position r-peaks and interpolate Tachogram. x-axis in samples
+                    # for p in range(len(Tacho[n,:])):
+                    #     Tacho[n,p] = Tacho[n,p] if abs(np.median(Tacho[n,:]) - Tacho[n,p])/np.median(Tacho[n,:])<0.1 else Tacho[n,p-1]
+                        # BBI_10[n] for n in range(len(BBI_10)) if abs(np.mean(BBI_10) - BBI_10[n])/BBI_10[n]<0.1
                 Tacho = Tacho / samplerate # transform from sample into ms
                 dic_seq[key+lag] = Tacho
                 plt.figure(1)
@@ -244,17 +343,19 @@ def constr_feat(data, NAME, length_item):
                     symbols, words, BBI_list = cut_BBI(data[key], lag_current, length_item)
                 
                 # Upsampling to length_item / ds_ratio
-                ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+                ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
                 ds = int(samplerate/ds_samplerate) # downsampling ratio
                 sym_up = np.full((len(symbols), int(length_item/ds)), int(10)) # array of 10s. After Upsampling no 10s expected
-                
                 for example in range(len(BBI_list)): # extract BBI of example in ms
-                    BBI = np.array(BBI_list[example] / 1000 * ds_samplerate, dtype=int) # transform values into sample (of down_samplerate)
-                    BBI = np.cumsum(BBI) # cummulation BBI
+                    BBI = np.array(BBI_list[example] / 1000 * ds_samplerate) # transform values from ms into sample (of down_samplerate)
+                    BBI = np.cumsum(BBI).astype(int) # cummulation BBI. this way we get point in time for each beat
+                    u, counts = np.unique(BBI, return_counts=True) # checks if two beats are on one sample
+                    if max(counts) > 1:
+                        print("Warning: Downsamplerate of Symbols is too low. Two beats on one sample in example:", example)
                     sym_up[example, :BBI[0]] = symbols[example][0] # values before first BBI
-                    for n in range(len(BBI)-1): # loop over single points of BBI and symbols
-                        sym_up[example, BBI[n]:BBI[n+1]] = symbols[example][n]
-                    sym_up[example, BBI[n+1]:] = symbols[example][n+1] # values after last BBI
+                    for n in range(1,len(BBI)): # loop over single points of BBI and symbols
+                        sym_up[example, BBI[n-1]:BBI[n]] = symbols[example][n] # BBI set for samples before r-peak
+                    sym_up[example, BBI[-1]:] = symbols[example][-1] # values after last BBI
                 
                 
                 dic_seq[key+lag] = sym_up.astype(np.int32)
@@ -333,25 +434,31 @@ def feat_check(X,y):
     Plots the different features of input and output in one diagramm
     Helps with deciding if features are reasonable and correct
     """
-    # print(np.shape(X))
-    plt.figure(1)
-    # plt.title("ECG with 5 minute duration")
-    plt.plot(list(range(len(X[0,:]))), X[0,:])
-    plt.savefig("Test-X.png")
-    plt.close()
-    
-    k = 0
-    for n in range(len(y)): # loop over all features by going through arrays in list
-        plt.figure(2+n)
-        if isinstance(y[n], list):
-            data = y[n][0]
-        else:
-            # print(np.shape(y[n]))
-            data = y[n][0,:]
-        plt.plot(list(range(len(data))), data + k)
-        k = k + 0.0005
-        plt.savefig("Test-y-" + str(n) +".png")
+    for k in range(5):
+        example = min(k, len(X[:,0]))
+        # print(np.shape(X))
+        plt.figure(1)
+        # plt.title("ECG with 5 minute duration")
+        plt.plot(list(range(len(X[k,:]))), X[k,:])
+        plt.savefig("Test-X-" +str(k) +".png")
         plt.close()
+    
+    for n in range(len(y)): # loop over all features by going through arrays in list
+        for k in range(5): # five examples
+            plt.figure(2+n+len(y)*k)
+            if isinstance(y[n], list):
+                # example = np.random.randint(len(y[n][:]))
+                example = min(k, len(y[n][:]))
+                data = y[n][example]
+            else:
+                # print(np.shape(y[n]))
+                # example = np.random.randint(len(y[n][:,0]))
+                example = min(k, len(y[n][:,0]))
+                data = y[n][example,:]
+            plt.plot(list(range(len(data))), data)
+            plt.title("Test-y-column-" + str(n) + "-example-"+ str(example))
+            plt.savefig("Test-y-" + str(n) + "-example-"+ str(k) +".png")
+            plt.close()
 
 def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     """This function is for testing the current preferred Architecture
@@ -383,7 +490,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
     ds_step =  int(2**1)# factor of down- and upsampling of ecg timeseries
     ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
-    orig_a_f = int(2**0) # first filter amount. low amount of filters ensures faster learning and training
+    orig_a_f = int(2**4) # first filter amount. low amount of filters ensures faster learning and training
     amount_filter = orig_a_f
     encoder = Conv1D(amount_filter, # number of columns in output. filters
                      samplerate*2, # kernel size. We look at 2s snippets
@@ -397,7 +504,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # our hidden layer / encoder
     # decreasing triangle
     k = ds_step # needed to adjust Kernelsize to downsampled samplerate
-    while ds_samplerate < int(samplerate/k): # start loop so long current samplerate is above goal samplerate
+    while 1 < int(samplerate/k)/ds_samplerate: # start loop so long current samplerate is above goal samplerate
         if ds_samplerate > int(samplerate/k/ds_step):
             ds_step = 2
         k *= ds_step
@@ -415,27 +522,28 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     
     # pred = Dense(size)(encoder)
     # pred = Dense(size)(pred)
-    pred = LSTM(size, return_sequences=True)(encoder)
-    # pred = MaxPooling1D(8)(pred)
-    # pred = LSTM(size, return_sequences=True)(pred)
-    # pred = MaxPooling1D(2)(pred)
-    # pred = LSTM(size, return_sequences=True)(pred)
-    # pred = MaxPooling1D(2)(pred)
+    
     # pred = LSTM(size, return_sequences=True)(pred)
     # pred = LSTM(size, return_sequences=True)(pred)
     # pred = AveragePooling1D(4)(pred)
-    # pred = LSTM(size, return_sequences=True)(pred)
-    # encoder = Dense(size)(encoder)
+    # encoder_ = LSTM(size, return_sequences=True)(encoder) # Dense vor Dense-LSTM-branching besser
+    encoder_ = Dense(size)(encoder) # Vielleicht mit LSTM probieren. Direkt mit Dense option vergleichen
+    encoder = MaxPooling1D(8)(encoder_)
     # # LSTM branch
-    # lstm_br = LSTM(size, return_sequences=True)(encoder) # vielleicht amount_filter statt size
+    lstm_br = LSTM(size, return_sequences=True)(encoder) # vielleicht amount_filter statt size
     # lstm_br = LSTM(size, return_sequences=True)(lstm_br)
     # # # Dense branch
-    # dense_br = Dense(size)(encoder)
+    dense_br = Dense(size)(encoder)
     # dense_br = Dense(size)(dense_br)
     # # concat
-    # pred = concatenate([lstm_br, dense_br])
+    pred = concatenate([lstm_br, dense_br])
     # pred = Dense(size)(con_br)
-    
+    # pred = LSTM(size, return_sequences=True)(encoder)
+    # pred = MaxPooling1D(8)(pred)
+    # pred = LSTM(size, return_sequences=True)(pred)
+    pred = MaxPooling1D(4)(pred)
+    pred = LSTM(size, return_sequences=True)(pred)
+    # pred = AveragePooling1D(2)(pred)
         
     # branching of the pseudo-tasks
     # expanding triangle / decoder until all branches combined are as wide as the input layer
@@ -448,7 +556,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
                                                         1,
                                                         strides=1,
                                                         padding = "same")(
-                                                        pred)
+                                                        encoder_)
             branch_dic["branch{0}".format(x)] = UpSampling1D(ds_step)(branch_dic["branch{0}".format(x)])
             amount_filter /= 2
             while amount_filter >= orig_a_f:
@@ -468,20 +576,21 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
                                                         branch_dic["branch{0}".format(x)])
         
         elif 'regressionTacho' in out_types[x]: # Tachogram regression output
-            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
-            branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
-            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
-            branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
-            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
             # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])
         
         elif 'classificationSymbols' in out_types[x]: # symbols classification output
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
-            branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(pred)
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
-            branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
             amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
             print("Anzahl an Symbol-Kategorien: ", amount_cat)
             branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
@@ -577,7 +686,7 @@ def symbols_loss(y_true, y_pred):
     copies = tf.constant(2, dtype=tf.int16) # number of copies added to examples per rare class
     additions = tf.constant(0, dtype=tf.int32) # total number of copies of rare classes added to examples
     # We calculate CrossEntropy of at every half second. This way we speed up training. There is a lot of redundancy in one second
-    for time in tf.range(y_true.shape[1], delta=int(ds_samplerate/2)): # loop over time series with ds_samplerate steps
+    for time in tf.range(y_true.shape[1]): # , delta=int(ds_samplerate/2)): # loop over time series with ds_samplerate steps
         # "2" and "0" occur rarely and need to be weighted heavier to be learned properly
         # For this we find the classes and construct a boolean mask
         zeros = tf.equal(y_true[:,time], tf.zeros(tf.shape(y_true[:,time]), dtype=tf.int32)) # find zero elements
@@ -594,7 +703,7 @@ def symbols_loss(y_true, y_pred):
     # Additional we factor we loss with 500. This way it is comparable to the Words-distribution-loss
     return 1*(loss/tf.cast(y_true.shape[1] + additions/y_true.shape[1], tf.float16))
     
-def extract_number(string):
+def extract_number(string:str):
     """ Extracts numeric elements from string as integer
     """
     # print(string)
@@ -687,7 +796,7 @@ def plvar(BBI):
     
     return plvar_5_param, plvar_10_param, plvar_20_param
 
-def phvar(BBI):
+def phvar(BBI:list):
     """Function to calculate phvar parameters of BBI
     Input: BBI. list of numpy.arrays with different length. timeseries of beat-to-beat-intervalls for each beat no interpolation
     
@@ -778,15 +887,22 @@ def cut_BBI(data, lag, length_item):
     
     # Cutting BBI fitting our needs
     # lower bound / starting point of BBI time series. Defined by lag in samples / data points
-    lb_BBI = np.where(np.cumsum(data, axis=1) >= float(lag[4:])/samplerate*1000, data, 0)
-    # upper bound / ending point of BBI
-    up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
-    BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
     BBI_list = [] # saving in a list allows different length of sequences
-    for n in range(len(BBI[:,0])):
-        bbi = BBI[n,:]
-        BBI_list.append(bbi[~(bbi==0)])
-    
+    if isinstance(data, list): # check if data is a list. numpy.array otherwise
+        for d in data: # loop over each BBI timeseries
+            lb_BBI = np.where(np.cumsum(d) >= float(lag[4:])/samplerate*1000, d, 0)
+            # upper bound / ending point of BBI
+            up_BBI = np.where(np.cumsum(lb_BBI) <= length_item/samplerate*1000, lb_BBI, 0)
+            BBI_list.append(up_BBI[up_BBI!=0]) # save only non-zero elements
+            del lb_BBI, up_BBI
+    else:
+        lb_BBI = np.where(np.cumsum(data, axis=1) >= float(lag[4:])/samplerate*1000, data, 0)
+        # upper bound / ending point of BBI
+        up_BBI = np.where(np.cumsum(lb_BBI, axis=1) <= length_item/samplerate*1000, lb_BBI, 0)
+        BBI = up_BBI[:, ~np.all(up_BBI == 0, axis = 0)] # cut all columns with only zeros out
+        for n in range(len(BBI[:,0])):
+            bbi = BBI[n,:]
+            BBI_list.append(bbi[~(bbi==0)]) # BBI is in ms
     # Extracting symbols from cut BBI
     symbols, words = calc_symboldynamics(BBI_list) # Outputs lists of arrays. Symbols have different length
     return symbols, words, BBI_list
