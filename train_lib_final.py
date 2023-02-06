@@ -165,7 +165,10 @@ def Icentia_memorize(amount, length_item, data_list):
     os.chdir(dname)
     local_path = os.getcwd() + '/data/Icentia11k/'
     
-    # list_training, list_test = Ird.download(amount) # download files of ecgs and annotations
+    # for n in range(5):
+    #     list_training, list_test = Ird.download(amount) # download files of ecgs and annotations
+    #     del list_training, list_test
+    # exit()
     list_training, list_test = Ird.load_local(amount) # list local files of ecgs and annotations
     
     print("Reading ecg and annotations ...")
@@ -295,7 +298,10 @@ def constr_feat(data, NAME, length_item):
         for lag in NAME[key]: # loop over lags and options found under key
             feat_number += 1
             # check if data is timeseries, distribution or parameter
-            print("Shape of source data for feature ", key, " : ", np.shape(data[key]))
+            try:
+                print("Shape of source data for feature ", key, " : ", np.shape(data[key]))
+            except:
+                pass
             print("feature: lag ", int(lag[4:]), "at column ", feat_number) # lag is in given in samples / datapoints
             
             if key == 'ECG': # check if feature is ECG timeseries
@@ -434,12 +440,13 @@ def feat_check(X,y):
     Plots the different features of input and output in one diagramm
     Helps with deciding if features are reasonable and correct
     """
+    example = []
     for k in range(5):
-        example = min(k, len(X[:,0]))
+        example.append(np.random.randint(len(X[:,0])))
         # print(np.shape(X))
         plt.figure(1)
         # plt.title("ECG with 5 minute duration")
-        plt.plot(list(range(len(X[k,:]))), X[k,:])
+        plt.plot(list(range(len(X[k,-2000:]))), X[k,-2000:])
         plt.savefig("Test-X-" +str(k) +".png")
         plt.close()
     
@@ -448,13 +455,13 @@ def feat_check(X,y):
             plt.figure(2+n+len(y)*k)
             if isinstance(y[n], list):
                 # example = np.random.randint(len(y[n][:]))
-                example = min(k, len(y[n][:]))
-                data = y[n][example]
+                # example = min(k, len(y[n][:]))
+                data = y[n][example[k]]
             else:
                 # print(np.shape(y[n]))
                 # example = np.random.randint(len(y[n][:,0]))
-                example = min(k, len(y[n][:,0]))
-                data = y[n][example,:]
+                # example = min(k, len(y[n][:,0]))
+                data = y[n][example[k],:]
             plt.plot(list(range(len(data))), data)
             plt.title("Test-y-column-" + str(n) + "-example-"+ str(example))
             plt.savefig("Test-y-" + str(n) + "-example-"+ str(k) +".png")
@@ -744,7 +751,7 @@ def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
     for row in range(len(BBI[:])): # loop over examples
         # insert one-dim array from list into matlab function
         # function returns us symbols and words as output
-        result = engine.calc_symboldynamics(BBI[row], 0.01, "movdiff", nargout=2)
+        result = engine.calc_symboldynamics(BBI[row], 0.01, "movdiff", nargout=2) # vielleicht mit alpha 0.05 probieren
         flatten = [result[1][n][0] for n in range(len(result[1]))] # flatten the list of matlab.doubles
         # print(np.array(flatten,dtype=int))
         symbols.append(np.array(flatten,dtype=int))

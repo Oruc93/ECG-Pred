@@ -42,6 +42,7 @@ def download(amount):
     
     print("Preparing list of segments ...")
     list_segments = set() # list of all segments
+    list_patients = set() # set of all patients
     # Loading ever expanding set of existing segments
     if os.path.exists(local_path + "set_records.txt"):
         print("Load set records ...")
@@ -49,7 +50,7 @@ def download(amount):
             lines = f.readlines()
             for r in range(len(lines)):
                 list_segments.add(lines[r].rstrip('\n'))
-    
+                list_patients.add(lines[r][:-5].rstrip('\n'))
     print("Downloading training files ...")
     print("Listing available segments of interest ...")
     check_download = True
@@ -65,7 +66,8 @@ def download(amount):
                 if not(file_path in file_list_training): # check if file is already selected
                     # Download list of available segments of patient
                     # Check if table of segments for patient is already downloaded. Saving time in the long run
-                    if any([True for s in list_segments if '/p' + f"{patient_id:05d}" in s]):
+                    # if any([True for s in list_segments if '/p' + f"{patient_id:05d}" in s]):
+                    if 'p' + f"{patient_id:05d}" in list_patients:
                         print("Already downloaded")
                     else:
                         # print("Fresh download")
@@ -81,6 +83,7 @@ def download(amount):
                             records = f.readlines()
                             for r in range(len(records)):
                                 list_segments.add(records[r].rstrip('\n'))
+                                list_patients.add(lines[r][:-5].rstrip('\n'))
                     if 'p' + f"{patient_id:05d}" + '_s' + f"{ecg_id:02d}" in list_segments: # check if selected segment exists in records
                         file_list_training.append(file_path)
                         # print("Segment found")
@@ -208,6 +211,8 @@ def load_local(amount):
 
     print("Listing available segments of interest ...")
     file_list_test = []
+    counter = 0
+    missing_test = 0 # counter for how many test patients couldnt be found
     for n in range(int(max([1,amount*0.2]))):
         check = True
         while check: # loop until unused path found
@@ -218,6 +223,12 @@ def load_local(amount):
                 if not(any([file_path[:6] in path for path in file_list_training])): # check if patient is already in training set
                     file_list_test.append(file_path)
                     check = False
+                else:
+                    counter += 1
+                if counter > 999: # check if list of non-training patients is exhausted
+                    missing_test += 1
+                    print("No patients left for test. Need ", str(int(amount*0.2-missing_test)), " more test patients")
+                    break
     
     return file_list_training, file_list_test
 
@@ -314,7 +325,7 @@ def load_clean_data(list_training, length_item):
     with mp.Pool(mp.cpu_count()) as pool:
         results = pool.starmap(snippet_search, [(file, length_item) for file in list_training])
     
-    for n in range(np.shape(results)[0]): # loop over outputs of snippet search
+    for n in range(len(results)): # loop over outputs of snippet search
         for m in range(np.shape(results[n][0])[0]):
             train_data.append(results[n][0][m])
             train_beats.append(results[n][1][m])
@@ -384,6 +395,6 @@ def snippet_search(file, length_item):
                 train_data.append(ecg[offset:offset+500+int(length_item)]/50)
                 train_beats.append(beats)
                 train_BBI.append(BBI)
-                offset += int(5*60*250)
+                offset += int(length_item)
         offset += int(10*250)
     return train_data, train_beats, train_BBI

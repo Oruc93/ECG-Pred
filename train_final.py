@@ -36,7 +36,7 @@ def train(total_epochs=250,
     :return:
     """
     warnings.filterwarnings("ignore")
-         
+
     with mlflow.start_run():  # separate run for each NN size and configuration
         
         mlflow.tensorflow.autolog()  # automatically starts logging LOSS, metric and models
@@ -54,7 +54,9 @@ def train(total_epochs=250,
         data_list = tl.unique(data_list) # sorts out multiple occurences
         # data, samplerate = tl.memorize("./data/training.h5", data_list)
         # data, samplerate = tl.memorize_MIT_data(data_list, length_item, 'training')
-        data, data_test, samplerate = tl.Icentia_memorize(100, length_item, data_list)
+        amount = 1000 # number of training examples
+        data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
+        mlflow.log_param("number of training examples", amount)
         # exit()
         
         # readjust length_item according to samplerate
@@ -123,14 +125,14 @@ def train(total_epochs=250,
         #                 "ECG_output": 'MAE',
         #                 }
         # Callback
-        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
-        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True)
+        # escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
         
         # Train model on training set
         print("Training model...")
         model.fit(X,  # sequence we're using for prediction
                   y,  # sequence we're predicting
-                batch_size=int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                batch_size= 2**9,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                 callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
         
@@ -207,7 +209,7 @@ def train(total_epochs=250,
             for k in range(len(y_pred)):
                 # Full visuzilation
                 plt.figure(k)
-                plt.title(concat("Truth and Pred of column ", str(k)))
+                plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(l)))
                 plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
                 plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
                 if "ECG" in out_types[k]:
@@ -218,7 +220,7 @@ def train(total_epochs=250,
                 plt.close()
                 # Zoom visualization
                 plt.figure(k)
-                plt.title(concat("Truth and Pred of column ", str(k)))
+                plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(k)))
                 plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
                 plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
                 if "ECG" in out_types[k]:
@@ -227,4 +229,11 @@ def train(total_epochs=250,
                 name = "./plots/Plot-Col-" + str(k) + "-example-Zoom-" + str(l)
                 plt.savefig(name)
                 plt.close()
-        
+                
+            # plot Input
+            plt.figure(2)
+            plt.title(concat("Input of example ", str(l)))
+            plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
+            name = "./plots/Plot-Input-example-" + str(l)
+            plt.savefig(name)
+            plt.close()
