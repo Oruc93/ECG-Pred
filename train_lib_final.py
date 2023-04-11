@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 import tensorflow.keras as K
 from tensorflow.keras import mixed_precision
+from keras_nlp.layers import SinePositionEncoding
 from tensorflow.keras.layers import (
     Dense,
     Input,
@@ -18,11 +19,15 @@ from tensorflow.keras.layers import (
     MaxPooling1D,
     Flatten,
     concatenate,
+    Attention,
+    MultiHeadAttention,
+    # SinePositionEncoding
 )
 from keras.models import Model
 import matlab.engine
 import MIT_reader as Mrd
 import Icentia11k_reader as Ird
+import attention_lib
 
 # print("Tensorflow version: ", tf.__version__)
 # exit()
@@ -497,7 +502,7 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
     ds_step =  int(2**1)# factor of down- and upsampling of ecg timeseries
     ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
-    orig_a_f = int(2**4) # first filter amount. low amount of filters ensures faster learning and training
+    orig_a_f = int(2**1) # first filter amount. low amount of filters ensures faster learning and training
     amount_filter = orig_a_f
     encoder = Conv1D(amount_filter, # number of columns in output. filters
                      samplerate*2, # kernel size. We look at 2s snippets
@@ -660,6 +665,348 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
     return model, ds_samplerate
     
+def setup_Conv_E_LSTM_Att_P(input_shape, size, samplerate):
+    """This function is for testing the current preferred Architecture with additional attention layers
+    
+    builds neural network with different sizes and number of features
+    Encoder part are convolutional layers which downsampling to half length of timeseries with every layer
+    - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
+    second part is the core with share capacity of neural network and biggest part of capacity
+    third part consists of pseudo-task branches corresponding to the selected features
+    in these branches we make a prediction with the LSTM layer
+
+    :param input_shape: the shape of the input array
+    :param size: the width of the first encoder layer
+    :param number_feat: number of features of output (number of pseudo-tasks)
+    :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
+    :return model: keras model
+    """
+    
+        
+    # here we determine to you use mixed precision
+    # Meaning that the forwardpropagation is done in float16 for higher throughput
+    # And Backpropagation in float32 to keep high precision in weight adjusting
+    # Warning: If custom training is used. Loss Scaling is needed. See https://www.tensorflow.org/guide/mixed_precision
+    mixed_precision.set_global_policy('mixed_float16')
+    print("Input Shape:", input_shape)
+    # initialize our model
+    # our input layer
+    Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
+    # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
+    ds_step =  int(2**1)# factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+    orig_a_f = int(2**1) # first filter amount. low amount of filters ensures faster learning and training
+    amount_filter = orig_a_f
+    encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     samplerate*2, # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen
+                     activation = "relu"
+                     )(Input_encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+    encoder = AveragePooling1D(ds_step)(encoder)
+    print("Downsampled to: ", int(samplerate/ds_step), " Hz") # A samplerate under 100 Hz will decrease analysis quality. 10.4258/hir.2018.24.3.198
+    
+    # our hidden layer / encoder
+    # decreasing triangle
+    k = ds_step # needed to adjust Kernelsize to downsampled samplerate
+    while 1 < int(samplerate/k)/ds_samplerate: # start loop so long current samplerate is above goal samplerate
+        if ds_samplerate > int(samplerate/k/ds_step):
+            ds_step = 2
+        k *= ds_step
+        amount_filter *= 2
+        encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     int(samplerate/k), # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2,
+                     activation = "relu"
+                     )(encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+        encoder = AveragePooling1D(ds_step)(encoder)
+        print("Downsampled to: ", int(samplerate/k), " Hz")
+        
+        
+    
+    # pred = Dense(size)(encoder)
+    # pred = Dense(size)(pred)
+    
+    # pred = LSTM(size, return_sequences=True)(pred)
+    # pred = LSTM(size, return_sequences=True)(pred)
+    # pred = AveragePooling1D(4)(pred)
+    # encoder_ = LSTM(size, return_sequences=True)(encoder) # Dense vor Dense-LSTM-branching besser
+    encoder_ = Dense(size)(encoder) # Vielleicht mit LSTM probieren. Direkt mit Dense option vergleichen
+    encoder = MaxPooling1D(8)(encoder_)
+    # # LSTM branch
+    # lstm_br = LSTM(size, return_sequences=True)(encoder) # vielleicht amount_filter statt size
+    
+    # positional encoding
+    # encoder_p = pos_encoder(encoder)
+    lstm_br = MultiHeadAttention(num_heads=4,key_dim=size)(encoder, encoder)
+    lstm_br = K.layers.LayerNormalization()(lstm_br)
+    # lstm_br = LSTM(size, return_sequences=True)(lstm_br)
+    # # # Dense branch
+    dense_br = Dense(size)(encoder)
+    # dense_br = Dense(size)(dense_br)
+    # # concat
+    pred = concatenate([lstm_br, dense_br])
+    # pred = tf.keras.layers.Attention()(
+    #     [dense_br, lstm_br])
+    # pred = Dense(size)(con_br)
+    # pred = LSTM(size, return_sequences=True)(encoder)
+    # pred = MaxPooling1D(8)(pred)
+    # pred = LSTM(size, return_sequences=True)(pred)
+    pred = MaxPooling1D(4)(pred)
+    # pred = LSTM(size, return_sequences=True)(pred)
+    # pred = pos_encoder(pred)
+    pred = MultiHeadAttention(num_heads=4,key_dim=amount_filter)(pred, pred)
+    pred = K.layers.LayerNormalization()(pred)
+    # pred = AveragePooling1D(2)(pred)
+        
+    # branching of the pseudo-tasks
+    # expanding triangle / decoder until all branches combined are as wide as the input layer
+    branch_dic = {}  # dictionary for the branches
+    latent_a_f = amount_filter
+    for x in range(len(out_types)):
+        if 'ECG' in out_types[x]:  
+            amount_filter = latent_a_f      
+            branch_dic["branch{0}".format(x)] = Conv1D(amount_filter,
+                                                        1,
+                                                        strides=1,
+                                                        padding = "same")(
+                                                        encoder_)
+            branch_dic["branch{0}".format(x)] = UpSampling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            amount_filter /= 2
+            while amount_filter >= orig_a_f:
+                branch_dic["branch{0}".format(x)] = Conv1D(amount_filter,
+                                                            1,
+                                                            strides=1,
+                                                            padding = "same")(
+                                                            branch_dic["branch{0}".format(x)])
+                branch_dic["branch{0}".format(x)] = UpSampling1D(ds_step)(branch_dic["branch{0}".format(x)])
+                amount_filter /= 2
+            branch_dic["branch{0}".format(x)] = Conv1D(1,
+                                                        1,
+                                                        strides=1,
+                                                        padding = "same",
+                                                        name = "ECG_output",
+                                                        activation="linear")(
+                                                        branch_dic["branch{0}".format(x)])
+        
+        elif 'regressionTacho' in out_types[x]: # Tachogram regression output
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
+            branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=amount_filter)(pred, pred)
+            branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])
+        
+        elif 'classificationSymbols' in out_types[x]: # symbols classification output
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
+            branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=size)(pred, pred)
+            branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Symbol-Kategorien: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
+            
+        elif 'distributionWords' in out_types[x]: # words distribution output
+            branch_dic["branch{0}".format(x)] = concatenate([pred, branch_dic["branch{0}".format(x-1)]])
+            
+            branch_dic["branch{0}".format(x)] = LSTM(4, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(1, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Word-bins: ", amount_cat)
+            
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='Words_output')(branch_dic["branch{0}".format(x)])
+            
+        elif 'parametersTacho' in out_types[x]: # parameters of BBI vector
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an parameter: ", amount_cat)
+            
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            # Automate naming layer with out_types to ensure uniqueness
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='parameter_output')(branch_dic["branch{0}".format(x)])
+            
+        elif 'parameter' in out_types[x]: # non-linear parameters output
+            branch_dic["branch{0}".format(x)] = LSTM(8, return_sequences=True)(pred)
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(4, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(2, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(ds_step)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = LSTM(1, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an parameter: ", amount_cat)
+            
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            # Automate naming layer with out_types to ensure uniqueness
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='linear' , name='parameter_output')(branch_dic["branch{0}".format(x)])
+
+    # Concating outputs
+    if len(out_types)>1: # check if multiple feature in output of NN
+        # concatenate layer of the branch outputs
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        model = Model(Input_encoder, branch_dic.values())
+    else: # single feature in output
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        print(branch_dic["branch0"])
+        model = Model(Input_encoder, branch_dic["branch0"])
+        
+    # Add loss manually, because we use a custom loss with global variable use
+    # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
+    return model, ds_samplerate
+
+def pos_encoder(input):
+    """creates sinusoidal positional encoding
+    Addition with original input"""
+    pos_enc = SinePositionEncoding()(input)
+    return input + pos_enc
+
+def setup_Conv_Att_E(input_shape, size, samplerate):
+    """This function constructs neural network with a convolution and attention encoder
+    
+    builds neural network with different sizes and number of features
+    Encoder part are convolutional layers which downsampling to half length of timeseries with every layer
+    - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
+    
+    second part is the core with share capacity of neural network and biggest part of capacity. Core is made out of attention layers
+    
+    third part consists of pseudo-task branches corresponding to the selected features
+
+    :param input_shape: the shape of the input array
+    :param size: the width of the first encoder layer
+    :param number_feat: number of features of output (number of pseudo-tasks)
+    :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
+    :return model: keras model
+    """
+    
+        
+    # here we determine to you use mixed precision
+    # Meaning that the forwardpropagation is done in float16 for higher throughput
+    # And Backpropagation in float32 to keep high precision in weight adjusting
+    # Warning: If custom training is used. Loss Scaling is needed. See https://www.tensorflow.org/guide/mixed_precision
+    # mixed_precision.set_global_policy('mixed_float16')
+    print("Input Shape:", input_shape)
+    # initialize our model
+    # our input layer
+    Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
+    # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
+    ds_step =  int(2**1)# factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**7) # Ziel samplerate beim Downsampling
+    orig_a_f = int(2**1) # first filter amount. low amount of filters ensures faster learning and training
+    amount_filter = orig_a_f
+    encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     samplerate*2, # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen
+                     activation = "relu"
+                     )(Input_encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+    encoder = AveragePooling1D(ds_step)(encoder)
+    length = input_shape[0]/ds_step
+    print("Downsampled to: ", int(samplerate/ds_step), " Hz") # A samplerate under 100 Hz will decrease analysis quality. 10.4258/hir.2018.24.3.198
+    
+    # our hidden layer / encoder
+    # decreasing triangle
+    k = ds_step # needed to adjust Kernelsize to downsampled samplerate
+    while 1 < int(samplerate/k)/ds_samplerate: # start loop so long current samplerate is above goal samplerate
+        if ds_samplerate > int(samplerate/k/ds_step):
+            ds_step = 2
+        k *= ds_step
+        amount_filter *= 2
+        encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     int(samplerate/k), # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2,
+                     activation = "relu"
+                     )(encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+        encoder = AveragePooling1D(ds_step)(encoder)
+        length = length/ds_step
+        print("Downsampled to: ", int(samplerate/k), " Hz")
+    
+    pred = attention_lib.Encoder(num_layers=3, d_model=amount_filter, length=length, num_heads=2, dff=length)(encoder, w_2=256)
+    # pred = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(encoder)
+    # pred = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=2, dff=length)(pred)
+    # pred = attention_lib.FeedForward(d_model=amount_filter, dff=length)(encoder)
+    
+    pred = MaxPooling1D(16)(pred)
+    length = length/16
+    # branching of the pseudo-tasks
+    # expanding triangle / decoder until all branches combined are as wide as the input layer
+    branch_dic = {}  # dictionary for the branches
+    latent_a_f = amount_filter
+    core_length = length # for resetting length tracking
+    for x in range(len(out_types)):
+        length = core_length
+        if 'regressionTacho' in out_types[x]: # Tachogram regression output
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
+            branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            length = length/2
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
+            # branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=amount_filter)(pred, pred)
+            # branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])# branch_dic["branch{0}".format(x)])
+        
+        elif 'classificationSymbols' in out_types[x]: # symbols classification output
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
+            branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            length = length/2
+            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
+            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
+            # branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=size)(pred, pred)
+            # branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(pred)
+            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Symbol-Kategorien: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
+        
+    # Concating outputs
+    if len(out_types)>1: # check if multiple feature in output of NN
+        # concatenate layer of the branch outputs
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        model = Model(Input_encoder, branch_dic.values())
+    else: # single feature in output
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        print(branch_dic["branch0"])
+        model = Model(Input_encoder, branch_dic["branch0"])
+        
+    # Add loss manually, because we use a custom loss with global variable use
+    # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
+    return model, ds_samplerate
+
 def ECG_loss(y_true, y_pred):
         """
         Custom LOSS function
@@ -691,20 +1038,29 @@ def symbols_loss(y_true, y_pred):
     loss = tf.constant(0, dtype=tf.float16)
     ds_samplerate = int(2**7)
     copies = tf.constant(2, dtype=tf.int16) # number of copies added to examples per rare class
-    additions = tf.constant(0, dtype=tf.int32) # total number of copies of rare classes added to examples
+    additions = tf.constant(0, dtype=tf.int16) # total number of copies of rare classes added to examples
     # We calculate CrossEntropy of at every half second. This way we speed up training. There is a lot of redundancy in one second
     for time in tf.range(y_true.shape[1]): # , delta=int(ds_samplerate/2)): # loop over time series with ds_samplerate steps
         # "2" and "0" occur rarely and need to be weighted heavier to be learned properly
         # For this we find the classes and construct a boolean mask
-        zeros = tf.equal(y_true[:,time], tf.zeros(tf.shape(y_true[:,time]), dtype=tf.int32)) # find zero elements
+        # zeros = tf.equal(
+        #     tf.cast(y_true[:,time], dtype=tf.int16),
+        #     tf.zeros(tf.shape(y_true[:,time]),
+        #              dtype=tf.int16)) # find zero elements
+        zeros = tf.equal(
+            y_true[:,time],
+            tf.fill(tf.shape(y_true[:,time]), 0)) # find zero elements
         twos = tf.equal(y_true[:,time], tf.fill(tf.shape(y_true[:,time]), 2)) # find two elements
         rare_classes = tf.logical_or(zeros, twos) # combine both masks
-        additions = tf.reduce_sum(tf.cast(rare_classes, tf.int32)) # we count how often we find "2" and "0"
+        additions = tf.reduce_sum(tf.cast(rare_classes, tf.int16)) # we count how often we find "2" and "0"
+        
         add_class_true = tf.repeat(tf.boolean_mask(y_true[:,time], rare_classes), copies) # create multiple copies of rare classes
         stack_true = tf.concat([y_true[:,time], add_class_true], axis=0) # stack copies onto original point in time
+        
         add_class_pred = tf.repeat(tf.boolean_mask(y_pred[:,time], rare_classes), copies, axis=0) # create multiple copies of rare classes
         stack_pred = tf.concat([y_pred[:,time], add_class_pred], axis=0) # stack copies onto original point in time
-        loss += sce(stack_true, stack_pred) # sparse crossentropy of one time step. Very important. Crossentropy not defined for whole time series
+        
+        loss += sce(stack_true, tf.cast(stack_pred, dtype=tf.float16)) # sparse crossentropy of one time step. Very important. Crossentropy not defined for whole time series
     
     # we normalize loss by size of batch and number of added copies
     # Additional we factor we loss with 500. This way it is comparable to the Words-distribution-loss

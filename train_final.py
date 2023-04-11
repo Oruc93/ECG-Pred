@@ -12,6 +12,7 @@
 
 from operator import concat
 import train_lib_final as tl
+import attention_lib as al
 import matplotlib.pyplot as plt
 import numpy as np
 import warnings
@@ -49,14 +50,18 @@ def train(total_epochs=250,
         mlflow.log_param("size of NN", NNsize)
         
         print("\nMemorize training data ...")
+        
+        # !!!
+        # rewrite to encase different cases of data sources
+        
         # Extracting dataset from h5 into numpy array
         data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned datasets
         data_list = tl.unique(data_list) # sorts out multiple occurences
         # data, samplerate = tl.memorize("./data/training.h5", data_list)
-        # data, samplerate = tl.memorize_MIT_data(data_list, length_item, 'training')
-        amount = 1000 # number of training examples
+        # data, samplerate = tl.memorize_MIT_data(data_list, 'training')
+        amount = 10 # number of training patients
         data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
-        mlflow.log_param("number of training examples", amount)
+        # mlflow.log_param("number of training examples", amount)
         # exit()
         
         # readjust length_item according to samplerate
@@ -72,7 +77,7 @@ def train(total_epochs=250,
         print("\nMemorize test data ...")
         # Extracting dataset from h5 into numpy array
         # data, samplerate = tl.memorize("./data/test.h5", data_list)
-        # data, samplerate = tl.memorize_MIT_data(data_list, length_item, 'test')
+        # data, samplerate = tl.memorize_MIT_data(data_list, 'test')
         del data
         data = data_test
         print("Constructing test data ...")
@@ -87,13 +92,21 @@ def train(total_epochs=250,
             model, ds_samplerate = tl.setup_Conv_AE_LSTM_P((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "Conv-AE-LSTM-P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
+        if Arch == "Conv_E_LSTM_Att_P":
+            model, ds_samplerate = tl.setup_Conv_E_LSTM_Att_P((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM Decoder
+            mlflow.log_param("Architecture", "Conv_E_LSTM_Att_P")  # logs type of architecture
+            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
+        if Arch == "Conv_Att_E":
+            model, ds_samplerate = tl.setup_Conv_Att_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Att Encoder
+            mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
+            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
 
         # print(np.shape(X)[1:])
         model.summary()
         tl.draw_model(model)
         mlflow.log_artifact("./model.png")  # links plot to MLFlow run
         mlflow.log_param("number of parameters", model.count_params())  # logs number of parameters
-        
+        # exit()
         # Selecting loss and metric functions
         dic_loss = {
                     "ECG":                  ["ECG_output", tl.ECG_loss, 'MAE'],
@@ -125,14 +138,14 @@ def train(total_epochs=250,
         #                 "ECG_output": 'MAE',
         #                 }
         # Callback
-        # escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
-        escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
+        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
         
         # Train model on training set
         print("Training model...")
         model.fit(X,  # sequence we're using for prediction
                   y,  # sequence we're predicting
-                batch_size= 2**9,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                batch_size= 64,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                 callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
         
@@ -149,7 +162,7 @@ def train(total_epochs=250,
         model.evaluate(X_test, y_test, batch_size=int(np.shape(X_test)[0] / 10))
         
         # Predict on test set and plot
-        y_pred = model.predict(X_test, batch_size=int(np.shape(X_test)[0] / 3))
+        y_pred = model.predict(X_test, batch_size=64)# int(np.shape(X_test)[0] / 3))
         
         if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
             y_pred = [y_pred]

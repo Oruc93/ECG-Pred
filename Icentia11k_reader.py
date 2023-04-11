@@ -233,7 +233,9 @@ def load_local(amount):
     return file_list_training, file_list_test
 
 def load_data(list_training, length_item):
-    """Loads ecgs and annotation of selected segments
+    """ This function outdated and not used anymore
+    
+    Loads ecgs and annotation of selected segments
     Segments are downloaded beforehand
     Segments are cut to shorter length for processing efficiency
     
@@ -343,6 +345,7 @@ def load_clean_data(list_training, length_item):
     data_up = np.zeros((len(data[:,0]), int(length_item / ratio))) # empty array to contain ecg upsampled 
     for n in range(np.shape(data)[0]):
         data_up[n,:] = np.interp(list(range(len(data_up[n,:]))), list(range(len(data[n,:]))), data[n,:]) # position r-peaks and interpolate Tachogram. x-axis in samples    
+        data_up[n,:] /= max(data_up[n,:])
     
     # Upsampling to 256Hz with doubling 6 samples every second randomly with value zero
     peaks = np.array(train_beats)
