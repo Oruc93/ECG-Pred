@@ -57,10 +57,10 @@ def train(total_epochs=250,
         # Extracting dataset from h5 into numpy array
         data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned datasets
         data_list = tl.unique(data_list) # sorts out multiple occurences
-        # data, samplerate = tl.memorize("./data/training.h5", data_list)
+        data, samplerate = tl.memorize("./data/training.h5", data_list)
         # data, samplerate = tl.memorize_MIT_data(data_list, 'training')
-        amount = 10 # number of training patients
-        data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
+        # amount = 10 # number of training patients
+        # data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
         # mlflow.log_param("number of training examples", amount)
         # exit()
         
@@ -76,10 +76,10 @@ def train(total_epochs=250,
         # exit()
         print("\nMemorize test data ...")
         # Extracting dataset from h5 into numpy array
-        # data, samplerate = tl.memorize("./data/test.h5", data_list)
+        data, samplerate = tl.memorize("./data/test.h5", data_list)
         # data, samplerate = tl.memorize_MIT_data(data_list, 'test')
-        del data
-        data = data_test
+        # del data
+        # data = data_test
         print("Constructing test data ...")
         # Extracting items from whole dataset
         X_test, y_test, out_types = tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
@@ -138,7 +138,7 @@ def train(total_epochs=250,
         #                 "ECG_output": 'MAE',
         #                 }
         # Callback
-        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/10),50), min_delta=0.0005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
+        escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/5),50), min_delta=0.005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
         # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
         
         # Train model on training set

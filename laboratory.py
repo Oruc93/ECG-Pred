@@ -28,7 +28,7 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 # length_item: number of data points in items
 
 train(NNsize=int(2**3), 
-      total_epochs=100, 
+      total_epochs=200, 
       length_item= 8,# 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
       # INPUT_name = {"symbols": ["lag 0"]},
       OUTPUT_name = {'Tacho': ["lag 0"]}, #, 'symbolsC': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
