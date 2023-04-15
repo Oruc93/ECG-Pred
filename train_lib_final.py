@@ -144,7 +144,7 @@ def memorize_MIT_data(data_list: list, T_or_T: str):
     data_dic = {}
     for name in data_list:
         if name == 'ECG':
-            data_dic['ECG'] = data/10000 # scaling to under order of 10
+            data_dic['ECG'] = data/100 # scaling to under order of 10
         if name == 'Tacho':
             data_dic['Tacho'] = peaks
         if name in ["symbolsC", "words", 
@@ -312,7 +312,7 @@ def constr_feat(data, NAME, length_item):
             
             if key == 'ECG': # check if feature is ECG timeseries
                 seq = data[key][:, int(lag[4:]) : length_item + int(lag[4:])]
-                seq *= 100 # min-max scaling by hand
+                # seq *= 100 # min-max scaling by hand
                 dic_seq[key+lag] = seq               
                 continue
             
@@ -325,7 +325,7 @@ def constr_feat(data, NAME, length_item):
                 bc = data[key][:, int(lag[4:]) : length_item + int(lag[4:])]
                 bc = bc==3 # binary categorizing of r-peaks
                 rp = np.argwhere(bc>0) # position of r-peaks in samples of all examples
-                ds_samplerate = int(2**2) # int(2**7) # Ziel samplerate beim Downsampling
+                ds_samplerate = int(2**1) # int(2**7) # Ziel samplerate beim Downsampling
                 ratio = samplerate / ds_samplerate # quotient between both samplerates
                 Tacho = np.zeros((len(bc[:,0]), int(length_item / ratio))) # empty array to contain Tachogram
                 for n in range(len(bc[:,0])): # loop over all examples
@@ -355,7 +355,7 @@ def constr_feat(data, NAME, length_item):
                     symbols, words, BBI_list = cut_BBI(data[key], lag_current, length_item)
                 
                 # Upsampling to length_item / ds_ratio
-                ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
+                ds_samplerate = int(2**1) # Ziel samplerate beim Downsampling
                 ds = int(samplerate/ds_samplerate) # downsampling ratio
                 sym_up = np.full((len(symbols), int(length_item/ds)), int(10)) # array of 10s. After Upsampling no 10s expected
                 for example in range(len(BBI_list)): # extract BBI of example in ms
@@ -910,9 +910,9 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     # our input layer
     Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
     # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
-    ds_step =  int(2**4)# factor of down- and upsampling of ecg timeseries
-    ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
-    orig_a_f = int(2**4) # first filter amount. low amount of filters ensures faster learning and training
+    ds_step =  int(2**3)# factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**1) # Ziel samplerate beim Downsampling
+    orig_a_f = int(2**3) # first filter amount. low amount of filters ensures faster learning and training
     amount_filter = orig_a_f
     encoder = Conv1D(amount_filter, # number of columns in output. filters
                      samplerate*2, # kernel size. We look at 2s snippets
@@ -942,11 +942,11 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
         length = length/ds_step
         print("Downsampled to: ", int(samplerate/k), " Hz")
     
-    # pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=1)
+    pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     # pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(pred, w_2=2)
     # pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(pred, w_2=4)
     # pred = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(encoder)
-    # pred = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=2, dff=length)(pred)
+    # pred = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(pred)
     # pred = attention_lib.FeedForward(d_model=amount_filter, dff=length)(encoder)
     
     # pred = MaxPooling1D(16)(pred)
@@ -959,13 +959,13 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     for x in range(len(out_types)):
         length = core_length
         if 'regressionTacho' in out_types[x]: # Tachogram regression output
-            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(encoder)
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
             # branch_dic["branch{0}".format(x)] = Dense(4)(branch_dic["branch{0}".format(x)])
             # branch_dic["branch{0}".format(x)] = K.layers.Flatten()(branch_dic["branch{0}".format(x)])
             # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
             # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = UpSampling1D(4)(branch_dic["branch{0}".format(x)])
+            # branch_dic["branch{0}".format(x)] = UpSampling1D(2)(branch_dic["branch{0}".format(x)])
             # length = length/2
             # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
@@ -982,8 +982,8 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
             branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
             # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
-            branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
-            length = length/2
+            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            # length = length/2
             # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
             # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
             # branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=size)(pred, pred)

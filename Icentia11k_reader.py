@@ -345,7 +345,7 @@ def load_clean_data(list_training, length_item):
     data_up = np.zeros((len(data[:,0]), int(length_item / ratio))) # empty array to contain ecg upsampled 
     for n in range(np.shape(data)[0]):
         data_up[n,:] = np.interp(list(range(len(data_up[n,:]))), list(range(len(data[n,:]))), data[n,:]) # position r-peaks and interpolate Tachogram. x-axis in samples    
-        data_up[n,:] /= max(data_up[n,:])
+        data_up[n,:] /= np.max(data_up[n,:]) # normalize ecg to 1
     
     # Upsampling to 256Hz with doubling 6 samples every second randomly with value zero
     peaks = np.array(train_beats)
