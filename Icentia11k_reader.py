@@ -392,9 +392,9 @@ def snippet_search(file, length_item):
         beats[beat_sample] = int(3) # timeseries of beats marked as 3 in samples with 250 Hz. Constr_feat 'Tacho' case looks for 3
         # print("Amount of beats: ", len(BBI))
         
-        if len(BBI) >= 0.5*length_item/250:# check if there are normal beats at least every two seconds
+        if len(BBI) >= 0.5*length_item/250:# check if there are normal beats at least every two seconds. Default is 0.5
             # print("Amount of found artifacts: ", len(filter_10))
-            if len(filter_10) < 1: # check how often filter found something
+            if len(filter_10) < 1: # check how often filter found something. Default is 1
                 train_data.append(ecg[offset:offset+500+int(length_item)]/50)
                 train_beats.append(beats)
                 train_BBI.append(BBI)

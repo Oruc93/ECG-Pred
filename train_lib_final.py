@@ -29,6 +29,7 @@ import matlab.engine
 import MIT_reader as Mrd
 import Icentia11k_reader as Ird
 import attention_lib
+import multiprocessing as mp
 
 # print("Tensorflow version: ", tf.__version__)
 # exit()
@@ -197,8 +198,6 @@ def Icentia_memorize(amount, length_item, data_list):
                     "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
             data_dic[name] = BBI_training  # loads pointer to dataset into variable
             data_dic_test[name] = BBI_test  # loads pointer to dataset into variable
-    
-    
 
     import matplotlib.pyplot as plt
     print(np.shape(data_training))
@@ -215,6 +214,19 @@ def Icentia_memorize(amount, length_item, data_list):
     samplerate = 256
     
     return data_dic, data_dic_test, samplerate
+
+def CVP_memorize(length_item, data_list):
+    """this function loads data of CVP workgroup 
+    and cuts the timeseries in items of length item_length
+
+    Args:
+        length_item (int): length of items in samples
+        data_list (list): list of strings. Features needed for data
+
+    Returns:
+        list: list of numpy arrays. arrays contain time series of needed features
+    """
+    return data, data_test, samplerate
 
 def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
     """This function pulls items from datasets and separates them into input and output for training and test sets.
@@ -253,6 +265,9 @@ def output_type(dic_seq, OUTPUT_name):
         "ECG": "regressionECG",
         "Tacho": "regressionTacho",
         "symbolsC": "classificationSymbols", 
+        "Shannon": "Shannon", 
+        "Polvar10": "Polvar10", 
+        "forbword": "forbword",
         "words": "distributionWords",
         "parameters": "parameter", 
         "parametersTacho": "parameterTacho", "parametersSymbols": "parameterSymbols", "parametersWords": "parameterWords",
@@ -386,6 +401,81 @@ def constr_feat(data, NAME, length_item):
                 
                 dic_seq[key+lag] = words
                 continue
+            
+            if 'Shannon' == key: # calculate Shannon entropy
+                
+                # symbols and words are needed often
+                # calculate and reuse if lag same
+                if int(lag[4:])!=int(lag_current[4:]):
+                    lag_current = lag
+                    symbols, words, BBI_list = cut_BBI(data['symbolsC'], lag_current, length_item)
+                
+                future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+                engine = future.result() # run engine in background
+                engine.cd(r'nl', nargout=0) # change directory to nl folder
+            
+                words = words.astype(np.float64)
+                
+                # fwshannon = lambda distribution: engine.fwshannon(distribution, nargout=1)
+                # with mp.Pool(mp.cpu_count()) as pool:
+                #     results = pool.map(fwshannon, [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)])
+                fwshannon_param = []
+                for row in [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)]: # loop over examples
+                    fwshannon_param.append(engine.fwshannon(row, nargout=1)) # Very important matlab functions defined for float64 / double
+                fwshannon_param = np.array(fwshannon_param, dtype=np.float16)
+
+                dic_seq[key+lag] = fwshannon_param
+                continue
+            
+            if 'Polvar10' == key: # calculate Shannon entropy
+                
+                # symbols and words are needed often
+                # calculate and reuse if lag same
+                if int(lag[4:])!=int(lag_current[4:]):
+                    lag_current = lag
+                    symbols, words, BBI_list = cut_BBI(data['symbolsC'], lag_current, length_item)
+                
+                future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+                engine = future.result() # run engine in background
+                engine.cd(r'nl', nargout=0) # change directory to nl folder
+            
+                # words = words.astype(np.float64)
+                
+                # fwshannon = lambda distribution: engine.fwshannon(distribution, nargout=1)
+                # with mp.Pool(mp.cpu_count()) as pool:
+                #     results = pool.map(fwshannon, [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)])
+                plvar_10_param = []
+                for BBI in BBI_list: # loop over examples
+                    plvar_10_param.append(engine.plvar(BBI, 10, nargout=1)) # Very important matlab functions defined for float64 / double
+                plvar_10_param = np.array(plvar_10_param, dtype=np.float16)
+
+                dic_seq[key+lag] = plvar_10_param
+                continue
+            
+            if 'forbword' == key: # calculate Shannon entropy
+                
+                # symbols and words are needed often
+                # calculate and reuse if lag same
+                if int(lag[4:])!=int(lag_current[4:]):
+                    lag_current = lag
+                    symbols, words, BBI_list = cut_BBI(data['symbolsC'], lag_current, length_item)
+                
+                future = matlab.engine.start_matlab(background=True) # asynchrounus run of matlab engine
+                engine = future.result() # run engine in background
+                engine.cd(r'nl', nargout=0) # change directory to nl folder
+            
+                words = words.astype(np.float64)
+                
+                # fwshannon = lambda distribution: engine.fwshannon(distribution, nargout=1)
+                # with mp.Pool(mp.cpu_count()) as pool:
+                #     results = pool.map(fwshannon, [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)])
+                forbword = []
+                for row in [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)]: # loop over examples
+                    forbword.append(engine.forbidden_words(row, nargout=1)) # Very important matlab functions defined for float64 / double
+                forbword = np.array(forbword, dtype=np.float16)
+
+                dic_seq[key+lag] = forbword
+                continue
                 
             if 'parameters' in key: # calculate non-linear parameters from BBI, symbols and words
                 
@@ -462,12 +552,18 @@ def feat_check(X,y):
             if isinstance(y[n], list):
                 # example = np.random.randint(len(y[n][:]))
                 # example = min(k, len(y[n][:]))
-                data = y[n][example[k]]
+                try:
+                    data = y[n][example[k]]
+                except:
+                    continue
             else:
                 # print(np.shape(y[n]))
                 # example = np.random.randint(len(y[n][:,0]))
                 # example = min(k, len(y[n][:,0]))
-                data = y[n][example[k],:]
+                try:
+                    data = y[n][example[k],:]
+                except:
+                    continue
             plt.plot(list(range(len(data))), data)
             plt.title("Test-y-column-" + str(n) + "-example-"+ str(example))
             plt.savefig("Test-y-" + str(n) + "-example-"+ str(k) +".png")
@@ -896,7 +992,9 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     :param size: the width of the first encoder layer
     :param number_feat: number of features of output (number of pseudo-tasks)
     :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
-    :return model: keras model
+    :return model:  keras model
+                    ds_samplerate. samplerate in latent space at Core
+                    latent_a_f. number of features in latent space at core
     """
     
         
@@ -942,60 +1040,32 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
         length = length/ds_step
         print("Downsampled to: ", int(samplerate/k), " Hz")
     
-    pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
-    # pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(pred, w_2=2)
-    # pred = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(pred, w_2=4)
-    # pred = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(encoder)
-    # pred = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(pred)
-    # pred = attention_lib.FeedForward(d_model=amount_filter, dff=length)(encoder)
+    core = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     
-    # pred = MaxPooling1D(16)(pred)
-    # length = length/16
-    # branching of the pseudo-tasks
-    # expanding triangle / decoder until all branches combined are as wide as the input layer
     branch_dic = {}  # dictionary for the branches
     latent_a_f = amount_filter
     core_length = length # for resetting length tracking
     for x in range(len(out_types)):
         length = core_length
         if 'regressionTacho' in out_types[x]: # Tachogram regression output
-            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = Dense(4)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = K.layers.Flatten()(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = UpSampling1D(2)(branch_dic["branch{0}".format(x)])
-            # length = length/2
-            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
-            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
-            # branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=amount_filter)(pred, pred)
-            # branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
-            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])# branch_dic["branch{0}".format(x)])
         
         elif 'classificationSymbols' in out_types[x]: # symbols classification output
-            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(pred)
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = attention_lib.FeedForward(d_model=amount_filter, dff=length)(pred)
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
-            # length = length/2
-            # branch_dic["branch{0}".format(x)] = LSTM(size, return_sequences=True)(pred)
-            # branch_dic["branch{0}".format(x)] = pos_encoder(pred)
-            # branch_dic["branch{0}".format(x)] = MultiHeadAttention(num_heads=4,key_dim=size)(pred, pred)
-            # branch_dic["branch{0}".format(x)] = K.layers.LayerNormalization()(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = MaxPooling1D(8)(pred)
-            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(pred)
-            # branch_dic["branch{0}".format(x)] = LSTM(int(size), return_sequences=True)(branch_dic["branch{0}".format(x)])
-            # branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
             amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
             print("Anzahl an Symbol-Kategorien: ", amount_cat)
             branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
+        
+        elif out_types[x] in ["Shannon", "Polvar10", "forbword"]: # Shannon entropy prediction
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
+            branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=2, dff=length)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            name_output = out_types[x] + "_output"
+            branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
         
     # Concating outputs
     if len(out_types)>1: # check if multiple feature in output of NN
@@ -1011,7 +1081,7 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
         
     # Add loss manually, because we use a custom loss with global variable use
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
-    return model, ds_samplerate
+    return model, ds_samplerate, latent_a_f
 
 def ECG_loss(y_true, y_pred):
         """
@@ -1071,7 +1141,21 @@ def symbols_loss(y_true, y_pred):
     # we normalize loss by size of batch and number of added copies
     # Additional we factor we loss with 500. This way it is comparable to the Words-distribution-loss
     return 1*(loss/tf.cast(y_true.shape[1] + additions/y_true.shape[1], tf.float16))
+
+def symbols_loss_uniform(y_true, y_pred):
+    """Custom LOSS function für symbol classification
     
+    Here we use Sparse Crossentropy for every time step seperately and sum them up
+    For higher efficiency we dont weight rare classes
+    The function returns loss. SparseCategoricalCrossentropy
+    """
+    scce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
+    y_true = y_true[:,:, tf.newaxis]
+    # print("y_true", y_true)
+    # print("y_pred", y_pred)
+    # print(scce(y_true, y_pred))
+    return scce(y_true, y_pred)
+
 def extract_number(string:str):
     """ Extracts numeric elements from string as integer
     """

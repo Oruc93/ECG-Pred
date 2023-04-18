@@ -18,11 +18,12 @@ import numpy as np
 import warnings
 import mlflow
 import os
+import sys
 from keras.callbacks import EarlyStopping
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
-          NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P"):
+          NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P", dataset="SYNECG"):
     """
     Setting up, training and evaluating one neural network with specific configuration
     During this process different metrics are logged in MLFlow and can be accessed by MLFlow UI in the browser
@@ -49,45 +50,47 @@ def train(total_epochs=250,
         mlflow.log_param("Output features", OUTPUT_name)  # Logs configuration of model features
         mlflow.log_param("size of NN", NNsize)
         
-        print("\nMemorize training data ...")
+        print("\nMemorize data ...")
         
-        # !!!
-        # rewrite to encase different cases of data sources
-        
-        # Extracting dataset from h5 into numpy array
-        data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned datasets
+        data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
         data_list = tl.unique(data_list) # sorts out multiple occurences
-        # data, samplerate = tl.memorize("./data/training.h5", data_list)
-        # data, samplerate = tl.memorize_MIT_data(data_list, 'training')
-        amount = 1000 # number of training patients
-        data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
-        mlflow.log_param("number of training examples", amount)
-        # exit()
+        
+        # different datasets for training and test
+        if dataset == "SYNECG": # synthetic ECG from Fabians Bachelor thesis
+            data, samplerate = tl.memorize("./data/training.h5", data_list)    
+            data_test, samplerate = tl.memorize("./data/test.h5", data_list)
+        elif dataset == "MIT-BIH": # did not work with LSTM. Never tested with attention
+            data, samplerate = tl.memorize_MIT_data(data_list, 'training')
+            data_test, samplerate = tl.memorize_MIT_data(data_list, 'test')
+        elif dataset == "Icentia":
+            amount = 10 # number of training patients
+            data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
+            mlflow.log_param("number of training examples", amount)
+        elif dataset == "CVP":
+            data, data_test, samplerate = tl.CVP_memorize(length_item, data_list)
+        else:
+            sys.exit("dataset not known")
+        
         
         # readjust length_item according to samplerate
-        length_item = int(length_item*samplerate)
+        length_item = int(length_item*samplerate) # from seconds to samples
+        mlflow.log_param("samplerate", samplerate) # samplerate in Hz
         
-        print("Constructing training data ...")
-        
-        # Extracting items from whole dataset
+        print("\nConstructing training data ...")
+        # Extracting items from training data
         X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
         print("Types of output: ", out_types)
         tl.feat_check(X,y) # Plots example of dataset and some features
         # exit()
-        print("\nMemorize test data ...")
-        # Extracting dataset from h5 into numpy array
-        # data, samplerate = tl.memorize("./data/test.h5", data_list)
-        # data, samplerate = tl.memorize_MIT_data(data_list, 'test')
-        del data
-        data = data_test
-        print("Constructing test data ...")
-        # Extracting items from whole dataset
-        X_test, y_test, out_types = tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
+        
+        print("\nConstructing test data ...")
+        # Extracting items from test data
+        X_test, y_test, out_types = tl.set_items(data_test, INPUT_name, OUTPUT_name, length_item)
         # tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
-        mlflow.log_param("samplerate", samplerate) # samplerate in Hz
+        
         
         # Initialize model
-        print("Initializing model...")
+        print("\nInitializing model...")
         if Arch == "Conv-AE-LSTM-P":
             model, ds_samplerate = tl.setup_Conv_AE_LSTM_P((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM Decoder
             mlflow.log_param("Architecture", "Conv-AE-LSTM-P")  # logs type of architecture
@@ -97,9 +100,10 @@ def train(total_epochs=250,
             mlflow.log_param("Architecture", "Conv_E_LSTM_Att_P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
         if Arch == "Conv_Att_E":
-            model, ds_samplerate = tl.setup_Conv_Att_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Att Encoder
+            model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Att Encoder
             mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
-            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
+            mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
+            mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
 
         # print(np.shape(X)[1:])
         model.summary()
@@ -111,7 +115,10 @@ def train(total_epochs=250,
         dic_loss = {
                     "ECG":                  ["ECG_output", tl.ECG_loss, 'MAE'],
                     "Tacho":                ["Tacho_output", tl.ECG_loss, 'MAE'],
-                    "symbolsC":             ["Symbols_output", tl.symbols_loss, 'sparse_categorical_accuracy'],
+                    "symbolsC":             ["Symbols_output", tl.symbols_loss_uniform, 'sparse_categorical_accuracy'],
+                    "Shannon":              ["Shannon_output", tl.ECG_loss, 'MAE'], 
+                    "Polvar10":             ["Polvar10_output", tl.ECG_loss, 'MAE'], 
+                    "forbword":             ["forbword_output", tl.ECG_loss, 'MAE'],
                     "words":                ["Words_output", tl.ECG_loss, 'MAE'],
                     "parameters":           ["parameter_output", tl.ECG_loss, 'MAE'],
                     "parametersTacho":      ["parameter_output", tl.ECG_loss, 'MAE'], 
@@ -125,7 +132,7 @@ def train(total_epochs=250,
             metrics[dic_loss[key][0]] = dic_loss[key][2]
         
         # Compile model
-        print("Compiling model...")
+        print("\nCompiling model...")
         model.compile(loss= loss,
                     optimizer='Adam',
                     metrics=metrics)
@@ -139,14 +146,14 @@ def train(total_epochs=250,
         #                 }
         # Callback
         # escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/5),50), min_delta=0.005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
-        escb = EarlyStopping(monitor='sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
-        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
+        # escb = EarlyStopping(monitor='sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
+        escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
         
         # Train model on training set
-        print("Training model...")
+        print("\nTraining model...")
         model.fit(X,  # sequence we're using for prediction
                   y,  # sequence we're predicting
-                batch_size= 64,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                batch_size= 32,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                 callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
         
@@ -159,7 +166,7 @@ def train(total_epochs=250,
 
         
         # Evaluate trained model
-        print("Evaluating model...")
+        print("\nEvaluating model...")
         model.evaluate(X_test, y_test, batch_size=int(np.shape(X_test)[0] / 10))
         
         # Predict on test set and plot
@@ -205,8 +212,12 @@ def train(total_epochs=250,
         for k in range(len(y_pred)):
             plt.figure(k)
             plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
-            plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
-            plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
+            if "Shannon" in out_types[k]: # Check if column is non-linear parameter
+                plt.plot(list(range(len(y_test[k][:]))), y_test[k][:])
+                plt.plot(list(range(len(y_pred[k][:]))), y_pred[k][:])
+            else: # ECG, Tachogramm oder Symbole
+                plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
+                plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
             if "ECG" in out_types[k]:
                 plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
             plt.legend(["y_Test", "Prediction", "X_Test"])
@@ -224,8 +235,12 @@ def train(total_epochs=250,
                 # Full visuzilation
                 plt.figure(k)
                 plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(l)))
-                plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
-                plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
+                if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
+                    plt.plot(list(range(len(y_test[k][:]))), y_test[k][:])
+                    plt.plot(list(range(len(y_pred[k][:]))), y_pred[k][:])
+                else: # ECG, Tachogramm oder Symbole
+                    plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
+                    plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
                 if "ECG" in out_types[k]:
                     plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
                 plt.legend(["y_Test", "Prediction", "X_Test"])
