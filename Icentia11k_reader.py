@@ -211,10 +211,10 @@ def load_local(amount):
 
     print("Listing available segments of interest ...")
     file_list_test = []
-    counter = 0
     missing_test = 0 # counter for how many test patients couldnt be found
     for n in range(int(max([1,amount*0.2]))):
         check = True
+        counter = 0
         while check: # loop until unused path found
             file_path = np.random.choice(list_segments) # pull file path of random segment
             list_segments.remove(file_path)

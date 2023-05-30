@@ -226,6 +226,9 @@ def CVP_memorize(length_item, data_list):
     Returns:
         list: list of numpy arrays. arrays contain time series of needed features
     """
+    a = np.load("data/CVP-dataset/dataset/0.npy")
+    print(np.shape(a))
+    exit()
     return data, data_test, samplerate
 
 def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
@@ -422,8 +425,15 @@ def constr_feat(data, NAME, length_item):
                 fwshannon_param = []
                 for row in [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)]: # loop over examples
                     fwshannon_param.append(engine.fwshannon(row, nargout=1)) # Very important matlab functions defined for float64 / double
-                fwshannon_param = np.array(fwshannon_param, dtype=np.float16)
-
+                fwshannon_param = np.array(fwshannon_param, dtype=np.float16) / 4
+                print(np.max(fwshannon_param))
+                print(np.min(fwshannon_param))
+                
+                plt.figure(1)
+                plt.plot(fwshannon_param)
+                plt.savefig("fwshannon.png")
+                plt.close()
+                
                 dic_seq[key+lag] = fwshannon_param
                 continue
             
@@ -448,7 +458,14 @@ def constr_feat(data, NAME, length_item):
                 for BBI in BBI_list: # loop over examples
                     plvar_10_param.append(engine.plvar(BBI, 10, nargout=1)) # Very important matlab functions defined for float64 / double
                 plvar_10_param = np.array(plvar_10_param, dtype=np.float16)
-
+                print(np.max(plvar_10_param))
+                print(np.min(plvar_10_param))
+                
+                plt.figure(1)
+                plt.plot(plvar_10_param)
+                plt.savefig("plvar_10_param.png")
+                plt.close()
+                
                 dic_seq[key+lag] = plvar_10_param
                 continue
             
@@ -472,8 +489,16 @@ def constr_feat(data, NAME, length_item):
                 forbword = []
                 for row in [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)]: # loop over examples
                     forbword.append(engine.forbidden_words(row, nargout=1)) # Very important matlab functions defined for float64 / double
-                forbword = np.array(forbword, dtype=np.float16)
-
+                forbword = np.array(forbword, dtype=np.float16) / 40
+                # plvar_10_param = np.array(plvar_10_param, dtype=np.float16) / np.max(plvar_10_param)
+                print(np.max(forbword))
+                print(np.min(forbword))
+                
+                plt.figure(1)
+                plt.plot(forbword)
+                plt.savefig("forbword.png")
+                plt.close()
+                
                 dic_seq[key+lag] = forbword
                 continue
                 
@@ -1102,6 +1127,45 @@ def ECG_loss(y_true, y_pred):
         loss = tf.reduce_mean(sd, axis=-1)  # Note the `axis=-1`
         
         return loss
+    
+def parameter_loss(y_true, y_pred):
+    """
+    loss for parameter tasks
+    """
+    mse = K.losses.MeanSquaredError()
+    mape = tf.keras.losses.MeanAbsolutePercentageError(
+        reduction="auto", name="mean_absolute_percentage_error")
+    
+    if changeAlpha.alpha > 20: # switch from squarred to relative error
+        loss = mape(y_true,y_pred)
+    else:
+        loss = mse(y_true,y_pred)
+    return loss
+
+class changeAlpha(K.callbacks.Callback):
+    def __init__(self, alpha):
+        self.alpha = alpha 
+
+    def on_epoch_begin(self, epoch, logs={}):
+        K.backend.set_value(self.alpha, epoch)
+        print("Setting alpha to =", str(self.alpha))
+
+def wrapper(param1):
+    """ Not in use!!!
+    
+    Wrapper around loss function
+    to extract epoch number"""
+    def custom_loss_1(y_true, y_pred):
+        mse = K.losses.MeanSquaredError()
+        mape = tf.keras.losses.MeanAbsolutePercentageError(
+            reduction="auto", name="mean_absolute_percentage_error")
+        
+        if param1 > 20: # switch from squarred to relative error
+            loss = mape(y_true,y_pred)/100
+        else:
+            loss = mse(y_true,y_pred)
+        return loss
+    return custom_loss_1
     
 def symbols_loss(y_true, y_pred):
     """Custom LOSS function für symbol classification

@@ -20,6 +20,7 @@ import mlflow
 import os
 import sys
 from keras.callbacks import EarlyStopping
+import tensorflow as tf
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
@@ -40,7 +41,7 @@ def train(total_epochs=250,
     warnings.filterwarnings("ignore")
 
     with mlflow.start_run():  # separate run for each NN size and configuration
-        
+
         mlflow.tensorflow.autolog()  # automatically starts logging LOSS, metric and models
         # Setting Parameters of Run
         print("Setting Parameters for Run...")
@@ -63,7 +64,7 @@ def train(total_epochs=250,
             data, samplerate = tl.memorize_MIT_data(data_list, 'training')
             data_test, samplerate = tl.memorize_MIT_data(data_list, 'test')
         elif dataset == "Icentia":
-            amount = 10 # number of training patients
+            amount = 6000 # 5000 # number of training patients
             data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
             mlflow.log_param("number of training examples", amount)
         elif dataset == "CVP":
@@ -112,6 +113,7 @@ def train(total_epochs=250,
         mlflow.log_param("number of parameters", model.count_params())  # logs number of parameters
         # exit()
         # Selecting loss and metric functions
+        alpha = tf.Variable(1)
         dic_loss = {
                     "ECG":                  ["ECG_output", tl.ECG_loss, 'MAE'],
                     "Tacho":                ["Tacho_output", tl.ECG_loss, 'MAE'],
@@ -147,7 +149,10 @@ def train(total_epochs=250,
         # Callback
         # escb = EarlyStopping(monitor='MAE', patience=min(int(total_epochs/5),50), min_delta=0.005, mode="min") # 'Tacho_output_MAE' 'ECG_output_MAE' 'binary_accuracy'
         # escb = EarlyStopping(monitor='sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
-        escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
+        # escb = EarlyStopping(monitor='Symbols_output_sparse_categorical_accuracy', patience=min(int(total_epochs/5),50), min_delta=0.001, mode="max", restore_best_weights=True) # Symbols_output_
+        # escb = EarlyStopping(monitor='loss', patience=min(int(total_epochs/5),50), min_delta=1, mode="max", restore_best_weights=True) # loss
+        escb = EarlyStopping(monitor='forbword_MAE', patience=min(int(total_epochs/5),50), min_delta=0.1, mode="max", restore_best_weights=True) # forbword
+        ca = tl.changeAlpha(alpha=alpha)
         
         # Train model on training set
         print("\nTraining model...")
@@ -167,7 +172,7 @@ def train(total_epochs=250,
         
         # Evaluate trained model
         print("\nEvaluating model...")
-        model.evaluate(X_test, y_test, batch_size=int(np.shape(X_test)[0] / 10))
+        model.evaluate(X_test, y_test, batch_size=32)
         
         # Predict on test set and plot
         y_pred = model.predict(X_test, batch_size=64)# int(np.shape(X_test)[0] / 3))
@@ -208,13 +213,13 @@ def train(total_epochs=250,
             if k == 100:
                 print("Could not find image name. Raise limit of rand.int above")
         plt.close()
-            
+        
         for k in range(len(y_pred)):
             plt.figure(k)
             plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
-            if "Shannon" in out_types[k]: # Check if column is non-linear parameter
-                plt.plot(list(range(len(y_test[k][:]))), y_test[k][:])
-                plt.plot(list(range(len(y_pred[k][:]))), y_pred[k][:])
+            if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
+                plt.plot(0, y_test[k][example], marker='o')
+                plt.plot(0, y_pred[k][example], marker='o')
             else: # ECG, Tachogramm oder Symbole
                 plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
                 plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
@@ -236,8 +241,8 @@ def train(total_epochs=250,
                 plt.figure(k)
                 plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(l)))
                 if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
-                    plt.plot(list(range(len(y_test[k][:]))), y_test[k][:])
-                    plt.plot(list(range(len(y_pred[k][:]))), y_pred[k][:])
+                    plt.plot(0, y_test[k][example], marker='o')
+                    plt.plot(0, y_pred[k][example], marker='o')
                 else: # ECG, Tachogramm oder Symbole
                     plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
                     plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
@@ -249,9 +254,21 @@ def train(total_epochs=250,
                 plt.close()
                 # Zoom visualization
                 plt.figure(k)
-                plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(k)))
-                plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
-                plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
+                if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
+                    if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
+                        y_test[k][example] = y_test[k][example]*4
+                        y_pred[k][example] = y_pred[k][example]*4
+                    if out_types[k] in ["forbword"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
+                        y_test[k][example] = y_test[k][example]*40
+                        y_pred[k][example] = y_pred[k][example]*40
+                        # relativen fehler aufschreiben
+                    plt.title("Truth and Pred of column " + str(k) + " of example " + str(k) + " rel. error of " + str(abs(y_test[k][example]-y_pred[k][example]/y_test[k][example])))
+                    plt.plot(0, y_test[k][example], marker='o')
+                    plt.plot(0, y_pred[k][example], marker='o')
+                else: # ECG, Tachogramm oder Symbole
+                    plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(k)))
+                    plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
+                    plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
                 if "ECG" in out_types[k]:
                     plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
                 plt.legend(["y_Test", "Prediction", "X_Test"])
