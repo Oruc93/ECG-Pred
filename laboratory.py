@@ -13,7 +13,7 @@ from train_final import train
 
 
 # Set experiment active or create new one
-experiment = mlflow.set_experiment("Attention tests - NL-Parameter + Symbol + Tacho - Icentia") # Conv-AE-LSTM-P good
+experiment = mlflow.set_experiment("Attention tests - NL-Parameter + Symbol + Tacho - CVP") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 # Starting a Run by calling train.py
@@ -33,7 +33,7 @@ train(NNsize=int(2**3),
       # INPUT_name = {"symbols": ["lag 0"]},
       OUTPUT_name = {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
       Arch = "Conv_Att_E",
-      dataset="Icentia")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
+      dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
 
 # for N in range(16,18,1):
 #       print(N)

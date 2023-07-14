@@ -30,6 +30,7 @@ import MIT_reader as Mrd
 import Icentia11k_reader as Ird
 import attention_lib
 import multiprocessing as mp
+import glob
 
 # print("Tensorflow version: ", tf.__version__)
 # exit()
@@ -188,7 +189,7 @@ def Icentia_memorize(amount, length_item, data_list):
     data_dic = {}
     data_dic_test = {}
     for name in data_list:
-        if name == 'ECG':
+        if name in ['ECG', 'SNR']:
             data_dic['ECG'] = data_training
             data_dic_test['ECG'] = data_test
         if name == 'Tacho':
@@ -215,7 +216,7 @@ def Icentia_memorize(amount, length_item, data_list):
     
     return data_dic, data_dic_test, samplerate
 
-def CVP_memorize(length_item, data_list):
+def CVP_memorize(data_list):
     """this function loads data of CVP workgroup 
     and cuts the timeseries in items of length item_length
 
@@ -225,11 +226,59 @@ def CVP_memorize(length_item, data_list):
 
     Returns:
         list: list of numpy arrays. arrays contain time series of needed features
+        arrays contain ["ecg", "r_pos", "snr", "subject_id", "tacho"]
+        samplerate [256, 256, 1, NaN, 4]
     """
-    a = np.load("data/CVP-dataset/dataset/0.npy")
-    print(np.shape(a))
-    exit()
-    return data, data_test, samplerate
+    global samplerate
+    samplerate = 256 # RX und CVD datenset 
+    
+    # load training examples into array
+    local_path = os.getcwd() + '/data/CVP-dataset/dataset/*.npy'
+    file_dir = glob.glob(local_path)
+    # print(file_dir)
+    data_ = []
+    for chunk in file_dir:
+        data_.append(np.load(chunk, allow_pickle=True))
+    data_training = np.concatenate(data_)
+    print("Training example array", np.shape(data_training))
+    
+    # load test examples into array
+    local_path = os.getcwd() + '/data/CVP-dataset/dataset/evaluation/*.npy'
+    file_dir = glob.glob(local_path)
+    # print(file_dir)
+    data_ = []
+    for chunk in file_dir:
+        data_.append(np.load(chunk, allow_pickle=True))
+    data_test = np.concatenate(data_)
+    print("Test example array", np.shape(data_test))
+    
+    # print(np.shape(np.array(list(data_training[:,0]))))
+    # print(np.shape(data_training[0,1]))
+    # print(np.shape(data_training[0,2]))
+    # print(np.shape(data_training[0,3]))
+    # print(np.shape(data_training[0,4]))
+    # print(data_training[0,4])
+    
+    data_dic = {}
+    data_dic_test = {}
+    for name in data_list:
+        print(name)
+        if name in ['SNR']:
+            data_dic['SNR'] = np.array(list(data_training[:,2]))
+            data_dic_test['SNR'] = np.array(list(data_test[:,2]))
+        if name in ['ECG']:
+            data_dic['ECG'] = np.array(list(data_training[:,0]))
+            data_dic_test['ECG'] = np.array(list(data_test[:,0]))
+        if name == 'Tacho':
+            # beats = np.array(list(data_training[:,1]))
+            # beats[beats] = int(3)
+            data_dic['Tacho'] = np.array(list(data_training[:,4]))
+            data_dic_test['Tacho'] = np.array(list(data_test[:,4]))
+        if name in ["symbolsC", "words", 
+                    "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
+            data_dic[name] = np.array(list(data_training[:,4]))*1000  # loads pointer to dataset into variable
+            data_dic_test[name] = np.array(list(data_test[:,4]))*1000  # loads pointer to dataset into variable
+    return data_dic, data_dic_test, samplerate
 
 def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
     """This function pulls items from datasets and separates them into input and output for training and test sets.
@@ -271,6 +320,7 @@ def output_type(dic_seq, OUTPUT_name):
         "Shannon": "Shannon", 
         "Polvar10": "Polvar10", 
         "forbword": "forbword",
+        "SNR": "regressionSNR",
         "words": "distributionWords",
         "parameters": "parameter", 
         "parametersTacho": "parameterTacho", "parametersSymbols": "parameterSymbols", "parametersWords": "parameterWords",
@@ -340,6 +390,19 @@ def constr_feat(data, NAME, length_item):
                 # identifies r-peaks and calculates BBI (distances in samples)
                 # constructs Tachogram and transforms units into ms
                 
+                if np.shape(data[key])[1] / (length_item / samplerate) <= 8: # Check ob Datenquelle weniger als 8Hz aufweist. Ja: Direkt Tacho. Nein: Peak-Position
+                    print(np.shape(data[key])[1]) # Anzahl samples in Tacho Source Datei
+                    print(length_item) # length_item in samples
+                    
+                    ds_samplerate = int(2**1) # int(2**7) # Ziel samplerate beim Downsampling
+                    ratio = 4 / ds_samplerate # quotient between both samplerates
+                    # Tacho = np.zeros((len(data[key][:,0]), int(length_item / ratio))) # empty array to contain Tachogram
+                    # for n in range(len(data[key][:,0])): # loop over all examples
+                    #     Tacho[n,:] = np.interp(list(range(len(Tacho[0,:]))), list(range(len(data[key][n,:]))), data[key][n,:]) # position r-peaks and interpolate Tachogram. x-axis in samples
+                    dic_seq[key+lag] = data[key][:,::int(ratio)]
+                    print(np.shape(dic_seq[key+lag]))
+                    continue
+                
                 bc = data[key][:, int(lag[4:]) : length_item + int(lag[4:])]
                 bc = bc==3 # binary categorizing of r-peaks
                 rp = np.argwhere(bc>0) # position of r-peaks in samples of all examples
@@ -359,7 +422,7 @@ def constr_feat(data, NAME, length_item):
                 plt.figure(1)
                 # plt.plot(list(range(len(Tacho[n,:]))), Tacho[n,:])
                 plt.plot(np.linspace(0, len(Tacho[n,:]) / ds_samplerate, num=len(Tacho[n,:])), Tacho[n,:])
-                plt.savefig("Tachogram.png")
+                plt.savefig("data-example-Tachogram.png")
                 plt.close()
                 continue
             
@@ -431,7 +494,7 @@ def constr_feat(data, NAME, length_item):
                 
                 plt.figure(1)
                 plt.plot(fwshannon_param)
-                plt.savefig("fwshannon.png")
+                plt.savefig("data-overview-fwshannon.png")
                 plt.close()
                 
                 dic_seq[key+lag] = fwshannon_param
@@ -457,13 +520,13 @@ def constr_feat(data, NAME, length_item):
                 plvar_10_param = []
                 for BBI in BBI_list: # loop over examples
                     plvar_10_param.append(engine.plvar(BBI, 10, nargout=1)) # Very important matlab functions defined for float64 / double
-                plvar_10_param = np.array(plvar_10_param, dtype=np.float16)
+                plvar_10_param = np.array(plvar_10_param, dtype=np.float16) + 0.1
                 print(np.max(plvar_10_param))
                 print(np.min(plvar_10_param))
                 
                 plt.figure(1)
                 plt.plot(plvar_10_param)
-                plt.savefig("plvar_10_param.png")
+                plt.savefig("data-overview-plvar_10_param.png")
                 plt.close()
                 
                 dic_seq[key+lag] = plvar_10_param
@@ -489,18 +552,34 @@ def constr_feat(data, NAME, length_item):
                 forbword = []
                 for row in [distribution[0,:] for distribution in np.split(words,np.shape(words)[0],axis=0)]: # loop over examples
                     forbword.append(engine.forbidden_words(row, nargout=1)) # Very important matlab functions defined for float64 / double
-                forbword = np.array(forbword, dtype=np.float16) / 40
+                forbword = np.array(forbword, dtype=np.float16) / 40 + 0.1
                 # plvar_10_param = np.array(plvar_10_param, dtype=np.float16) / np.max(plvar_10_param)
                 print(np.max(forbword))
                 print(np.min(forbword))
                 
                 plt.figure(1)
                 plt.plot(forbword)
-                plt.savefig("forbword.png")
+                plt.savefig("data-overview-forbword.png")
                 plt.close()
                 
                 dic_seq[key+lag] = forbword
                 continue
+            
+            if 'SNR' in key: # calculate SNR of ECG 
+                try: 
+                    seq = data['SNR'][:, :256]
+                except:
+                    seq = data['ECG'][:, int(lag[4:]) : length_item + int(lag[4:])]
+                snr = []
+                for k in range(len(seq[:,0])):
+                    snr.append(signaltonoise(seq[k,:]))
+                plt.figure(1)
+                plt.plot(snr[0])
+                plt.savefig("SNR-of-one-example.png")
+                plt.close()
+                snr = np.array(snr)
+                print(np.shape(snr))
+                dic_seq[key+lag] = snr             
                 
             if 'parameters' in key: # calculate non-linear parameters from BBI, symbols and words
                 
@@ -1091,7 +1170,12 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
             branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
             name_output = out_types[x] + "_output"
             branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
-        
+        elif 'regressionSNR' in out_types[x]: # SNR regression output
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
+            branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="SNR_output")(branch_dic["branch{0}".format(x)])
+            
     # Concating outputs
     if len(out_types)>1: # check if multiple feature in output of NN
         # concatenate layer of the branch outputs
@@ -1423,3 +1507,22 @@ def cut_BBI(data, lag, length_item):
     # Extracting symbols from cut BBI
     symbols, words = calc_symboldynamics(BBI_list) # Outputs lists of arrays. Symbols have different length
     return symbols, words, BBI_list
+
+def signaltonoise(a, axis=0, ddof=0):
+    """Calculates SNR for 1s windows
+    Sequence is reshaped into 2d array with dimensions (samplerate, length in seconds)    
+    
+    Args:
+        a (double): ecg sequence
+        axis (int, optional): _description_. Defaults to 0.
+        ddof (int, optional): _description_. Defaults to 0.
+
+    Returns:
+        double: sequence of SNR of 1s windows. 1D with length of measurements in seconds
+    """
+    a = np.reshape(a, (samplerate,-1))
+    a = np.asanyarray(a)
+    m = a.mean(axis)
+    sd = a.std(axis=axis, ddof=ddof)
+    
+    return np.where(sd == 0, 0, m/sd)
