@@ -261,6 +261,9 @@ def CVP_memorize(data_list):
     
     data_dic = {}
     data_dic_test = {}
+    Tacho_ms_check = True # check if Tachogram for Symbols and Parameters was ever loaded
+    data_dic['subject_id'] = np.array(list(data_training[:,3]))
+    data_dic_test['subject_id'] = np.array(list(data_test[:,3]))
     for name in data_list:
         print(name)
         if name in ['SNR']:
@@ -274,10 +277,11 @@ def CVP_memorize(data_list):
             # beats[beats] = int(3)
             data_dic['Tacho'] = np.array(list(data_training[:,4]))
             data_dic_test['Tacho'] = np.array(list(data_test[:,4]))
-        if name in ["symbolsC", "words", 
-                    "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
-            data_dic[name] = np.array(list(data_training[:,4]))*1000  # loads pointer to dataset into variable
-            data_dic_test[name] = np.array(list(data_test[:,4]))*1000  # loads pointer to dataset into variable
+        if name in ["symbolsC", "Shannon", "Polvar10", "forbword"]: # we construct non-linear parameters from BBI
+            if Tacho_ms_check:
+                data_dic["symbolsC"] = np.array(list(data_training[:,4]))*1000  # loads pointer to dataset into variable
+                data_dic_test["symbolsC"] = np.array(list(data_test[:,4]))*1000  # loads pointer to dataset into variable
+                Tacho_ms_check = False
     return data_dic, data_dic_test, samplerate
 
 def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
@@ -394,7 +398,7 @@ def constr_feat(data, NAME, length_item):
                     print(np.shape(data[key])[1]) # Anzahl samples in Tacho Source Datei
                     print(length_item) # length_item in samples
                     
-                    ds_samplerate = int(2**1) # int(2**7) # Ziel samplerate beim Downsampling
+                    ds_samplerate = int(2**2) # int(2**7) # Ziel samplerate beim Downsampling
                     ratio = 4 / ds_samplerate # quotient between both samplerates
                     # Tacho = np.zeros((len(data[key][:,0]), int(length_item / ratio))) # empty array to contain Tachogram
                     # for n in range(len(data[key][:,0])): # loop over all examples
@@ -436,7 +440,7 @@ def constr_feat(data, NAME, length_item):
                     symbols, words, BBI_list = cut_BBI(data[key], lag_current, length_item)
                 
                 # Upsampling to length_item / ds_ratio
-                ds_samplerate = int(2**1) # Ziel samplerate beim Downsampling
+                ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
                 ds = int(samplerate/ds_samplerate) # downsampling ratio
                 sym_up = np.full((len(symbols), int(length_item/ds)), int(10)) # array of 10s. After Upsampling no 10s expected
                 for example in range(len(BBI_list)): # extract BBI of example in ms
@@ -869,6 +873,8 @@ def setup_Conv_AE_LSTM_P(input_shape, size, samplerate):
 def setup_Conv_E_LSTM_Att_P(input_shape, size, samplerate):
     """This function is for testing the current preferred Architecture with additional attention layers
     
+    Can be scrapped!!!!
+    
     builds neural network with different sizes and number of features
     Encoder part are convolutional layers which downsampling to half length of timeseries with every layer
     - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
@@ -1084,17 +1090,18 @@ def pos_encoder(input):
 def setup_Conv_Att_E(input_shape, size, samplerate):
     """This function constructs neural network with a convolution and attention encoder
     
-    builds neural network with different sizes and number of features
-    Encoder part are convolutional layers which downsampling to half length of timeseries with every layer
+    builds neural network with different number of features
+    Encoder part are convolutional layers which downsampling to eightth length of timeseries with every layer
     - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
+    - Downsampling of time series to 4Hz with 16 filters
     
-    second part is the core with share capacity of neural network and biggest part of capacity. Core is made out of attention layers
+    second part is the core with share capacity of neural network and biggest part of capacity. 
+    Core is made out of attention layers for embedding latent image and Dense layer for individual branching
     
     third part consists of pseudo-task branches corresponding to the selected features
 
     :param input_shape: the shape of the input array
-    :param size: the width of the first encoder layer
-    :param number_feat: number of features of output (number of pseudo-tasks)
+    :param size: not needed anymore!!!
     :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
     :return model:  keras model
                     ds_samplerate. samplerate in latent space at Core
@@ -1106,14 +1113,14 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     # Meaning that the forwardpropagation is done in float16 for higher throughput
     # And Backpropagation in float32 to keep high precision in weight adjusting
     # Warning: If custom training is used. Loss Scaling is needed. See https://www.tensorflow.org/guide/mixed_precision
-    # mixed_precision.set_global_policy('mixed_float16')
+    mixed_precision.set_global_policy('mixed_float16')
     print("Input Shape:", input_shape)
     # initialize our model
     # our input layer
     Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
     # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
     ds_step =  int(2**3)# factor of down- and upsampling of ecg timeseries
-    ds_samplerate = int(2**1) # Ziel samplerate beim Downsampling
+    ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
     orig_a_f = int(2**3) # first filter amount. low amount of filters ensures faster learning and training
     amount_filter = orig_a_f
     encoder = Conv1D(amount_filter, # number of columns in output. filters
@@ -1146,6 +1153,10 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     
     core = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     
+    for depth in range(3):
+        core = Dense(amount_filter, activation='relu')(core)
+    
+    
     branch_dic = {}  # dictionary for the branches
     latent_a_f = amount_filter
     core_length = length # for resetting length tracking
@@ -1170,10 +1181,145 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
             branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
             name_output = out_types[x] + "_output"
             branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
+            
         elif 'regressionSNR' in out_types[x]: # SNR regression output
-            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
-            branch_dic["branch{0}".format(x)] = AveragePooling1D(2)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="SNR_output")(branch_dic["branch{0}".format(x)])
+            
+    # Concating outputs
+    if len(out_types)>1: # check if multiple feature in output of NN
+        # concatenate layer of the branch outputs
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        model = Model(Input_encoder, branch_dic.values())
+    else: # single feature in output
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        print(branch_dic["branch0"])
+        model = Model(Input_encoder, branch_dic["branch0"])
+        
+    # Add loss manually, because we use a custom loss with global variable use
+    # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
+    return model, ds_samplerate, latent_a_f
+
+def setup_Conv_LSTM_E(input_shape, size, samplerate):
+    """This function constructs neural network with a convolution and attention encoder
+    
+    For Second Experiment
+    
+    builds neural network with different number of features
+    Encoder part are convolutional layers which downsampling to eightth length of timeseries with every layer
+    - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
+    - Downsampling of time series to 4Hz with 16 filters
+    
+    second part is the core with share capacity of neural network and biggest part of capacity. 
+    Core is made out of attention layers for embedding latent image and Dense layer for individual branching
+    
+    third part consists of pseudo-task branches corresponding to the selected features
+
+    :param input_shape: the shape of the input array
+    :param size: number units in LSTM and Dense layers. 16 recommend because Attention modell works with 16 filters
+    :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
+    :return model:  keras model
+                    ds_samplerate. samplerate in latent space at Core
+                    latent_a_f. number of features in latent space at core
+    """
+    
+        
+    # here we determine to you use mixed precision
+    # Meaning that the forwardpropagation is done in float16 for higher throughput
+    # And Backpropagation in float32 to keep high precision in weight adjusting
+    # Warning: If custom training is used. Loss Scaling is needed. See https://www.tensorflow.org/guide/mixed_precision
+    mixed_precision.set_global_policy('mixed_float16')
+    print("Input Shape:", input_shape)
+    # initialize our model
+    # our input layer
+    Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
+    # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
+    ds_step =  int(2**3)# factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
+    orig_a_f = int(2**3) # first filter amount. low amount of filters ensures faster learning and training
+    amount_filter = orig_a_f
+    encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     samplerate*2, # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen
+                     activation = "relu"
+                     )(Input_encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+    encoder = AveragePooling1D(ds_step)(encoder)
+    length = input_shape[0]/ds_step
+    print("Downsampled to: ", int(samplerate/ds_step), " Hz") # A samplerate under 100 Hz will decrease analysis quality. 10.4258/hir.2018.24.3.198
+    
+    # our hidden layer / encoder
+    # decreasing triangle
+    k = ds_step # needed to adjust Kernelsize to downsampled samplerate
+    while 1 < int(samplerate/k)/ds_samplerate: # start loop so long current samplerate is above goal samplerate
+        if ds_samplerate > int(samplerate/k/ds_step):
+            ds_step = 2
+        k *= ds_step
+        amount_filter *= 2
+        encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     int(samplerate/k), # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2,
+                     activation = "relu"
+                     )(encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+        encoder = AveragePooling1D(ds_step)(encoder)
+        length = length/ds_step
+        print("Downsampled to: ", int(samplerate/k), " Hz")
+    
+    # Core
+    
+    core = Dense(size, activation='relu')(encoder)
+    
+    # # # Dense Core
+    dense_core = Dense(size, activation='relu')(core)
+    
+    # # # LSTM Core    
+    LSTM_core = LSTM(size, return_sequences=True)(core)
+    
+    for depth in range(3):
+        LSTM_core = LSTM(size, return_sequences=True)(LSTM_core)
+    
+    # # concat
+    core = concatenate([LSTM_core, dense_core])
+    
+    # individuel branching
+    for depth in range(3):
+        core = Dense(size, activation='relu')(core)
+    
+    
+    branch_dic = {}  # dictionary for the branches
+    latent_a_f = amount_filter
+    core_length = length # for resetting length tracking
+    for x in range(len(out_types)):
+        length = core_length
+        if 'regressionTacho' in out_types[x]: # Tachogram regression output
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/2), return_sequences=True)(core)
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/4), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(branch_dic["branch{0}".format(x)])# branch_dic["branch{0}".format(x)])
+        
+        elif 'classificationSymbols' in out_types[x]: # symbols classification output
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/2), return_sequences=True)(core)
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/4), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Symbol-Kategorien: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
+        
+        elif out_types[x] in ["Shannon", "Polvar10", "forbword"]: # Shannon entropy prediction
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/2), return_sequences=True)(core)
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/4), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Dense(1)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            name_output = out_types[x] + "_output"
+            branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
+            
+        elif 'regressionSNR' in out_types[x]: # SNR regression output
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/2), return_sequences=True)(core)
+            branch_dic["branch{0}".format(x)] = LSTM(int(size/4), return_sequences=True)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="SNR_output")(branch_dic["branch{0}".format(x)])
             
     # Concating outputs

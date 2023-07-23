@@ -68,9 +68,10 @@ def train(total_epochs=250,
             data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
             mlflow.log_param("number of training examples", amount)
         elif dataset == "CVP":
-            length_item = 256 # CVP Datensatz fest gelegte Länge
+            length_item = 300 # CVP Datensatz fest gelegte Länge
             data, data_test, samplerate = tl.CVP_memorize(data_list)
             amount = np.shape(data[list(data.keys())[0]])[0] # amount of training examples
+            mlflow.log_param("number of training examples", amount)
         else:
             sys.exit("dataset not known")
         
@@ -107,6 +108,11 @@ def train(total_epochs=250,
             mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
             mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
             mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
+        if Arch == "Conv-LSTM-E":
+            # Second Experiment
+            model, ds_samplerate = tl.setup_Conv_LSTM_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM+Dense Core + Branch
+            mlflow.log_param("Architecture", "Conv-LSTM-E")  # logs type of architecture
+            mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
 
         # print(np.shape(X)[1:])
         model.summary()
@@ -161,7 +167,7 @@ def train(total_epochs=250,
         print("\nTraining model...")
         model.fit(X,  # sequence we're using for prediction
                   y,  # sequence we're predicting
-                batch_size= 16,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                batch_size= 8,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                 # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                 epochs=total_epochs)
         
@@ -312,7 +318,6 @@ def train(total_epochs=250,
             # plot parameters of all examples
             for k in range(len(y_pred)):
                 if out_types[k] in ["Shannon", "Polvar10", "forbword"]:
-                    re = np.round(np.mean(abs((y_test[k][:]-y_pred[k][:])/y_test[k][:])), decimals=2)
                     if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
                         t = y_test[k][:]*4
                         p = y_pred[k][:]*4
@@ -322,6 +327,7 @@ def train(total_epochs=250,
                     else:
                         t = y_test[k][:]-0.1
                         p = y_pred[k][:]-0.1
+                    re = np.round(np.mean(abs((y_test[k][:]-y_pred[k][:])/y_test[k][:])), decimals=2)
                     plt.figure(1)
                     plt.title("Parameter " + out_types[k] + " of all examples with rel. error " + str(re)) # rel. error einfügen
                     plt.plot(list(range(len(t))), t)

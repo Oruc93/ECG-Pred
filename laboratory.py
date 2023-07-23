@@ -10,11 +10,11 @@ from train_final import train
 # Sets target file for saving runs
 # mlflow.set_tracking_uri()
 
+# Zeitverzögerung
+# import time
+# time.sleep(6300)
 
 
-# Set experiment active or create new one
-experiment = mlflow.set_experiment("Attention tests - NL-Parameter + Symbol + Tacho - CVP") # Conv-AE-LSTM-P good
-print("Experiment_id: {}".format(experiment.experiment_id))
 
 # Starting a Run by calling train.py
 # we can optionaly pass arguments to train
@@ -27,13 +27,46 @@ print("Experiment_id: {}".format(experiment.experiment_id))
 # NNsize: width of Input layer of NN
 # length_item: number of data points in items
 
-train(NNsize=int(2**3), 
-      total_epochs=200, 
-      length_item= 256,# 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+Out_list = [{'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
+            {'Shannon': ["lag 0"]}, {'Polvar10': ["lag 0"]}, {'forbword': ["lag 0"]},
+            {'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
+            {'Tacho': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
+            {'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
+            {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
+            {'Tacho': ["lag 0"], 'forbword': ["lag 0"]},
+            {'symbolsC': ["lag 0"], 'forbword': ["lag 0"]},
+            {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]}]
+
+# First Experiment Different Pseudo-Task Combinations
+# Set experiment active or create new one
+experiment = mlflow.set_experiment("Experiment 1 - Pseudo-Tasks") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+for Out in Out_list:
+      train(NNsize=int(2**4), 
+            total_epochs=10, 
+            length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+            # INPUT_name = {"symbols": ["lag 0"]},
+            OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+            Arch = "Conv_Att_E",
+            dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
+      exit()
+
+# Second Experiment LSTM
+experiment = mlflow.set_experiment("Experiment 2 - LSTM") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+train(NNsize=int(2**4), 
+      total_epochs=10, 
+      length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
       # INPUT_name = {"symbols": ["lag 0"]},
       OUTPUT_name = {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
-      Arch = "Conv_Att_E",
-      dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
+      Arch = "Conv-LSTM-E",
+      dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+
+# Third Experiment
+# Hier weiter coden
+
 
 # for N in range(16,18,1):
 #       print(N)

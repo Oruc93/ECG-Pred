@@ -11,7 +11,7 @@ import tensorflow as tf
 
 import tensorflow_text
 
-def positional_encoding(length, depth):
+def positional_encoding(length, depth, dtype=tf.float32):
     """ this function creates array of shape (length, depth)
     along length sinus and cosines oscillate 
     along depth sinus and cosines has different frequencies
@@ -37,19 +37,19 @@ def positional_encoding(length, depth):
         [np.sin(angle_rads), np.cos(angle_rads)],
         axis=-1) 
 
-    return tf.cast(pos_encoding, dtype=tf.float32)
+    return tf.cast(pos_encoding, dtype=dtype)
 
 class PositionalEmbedding(tf.keras.layers.Layer):
     """ This Layer adds positional embedding on input"""
     def __init__(self, d_model, length):
         super().__init__()
         self.d_model = d_model
-        self.pos_encoding = positional_encoding(length=length, depth=d_model)
+        self.pos_encoding = positional_encoding(length=length, depth=d_model, dtype=self.compute_dtype)
 
     def call(self, x):
         length = tf.shape(x)[1]
         # This factor sets the relative scale of the embedding and positional_encoding.
-        x *= tf.math.sqrt(tf.cast(self.d_model, tf.float32))
+        x *= tf.math.sqrt(tf.cast(self.d_model, self.compute_dtype))
         x = x + self.pos_encoding[tf.newaxis, :length, :]
         return x
     
