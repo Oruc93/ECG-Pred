@@ -35,6 +35,9 @@ import glob
 # print("Tensorflow version: ", tf.__version__)
 # exit()
 
+global samplerate
+samplerate = 256
+
 # Change directory to current file directory
 abspath = os.path.abspath(__file__)
 dname = os.path.dirname(abspath)
@@ -284,7 +287,7 @@ def CVP_memorize(data_list):
                 Tacho_ms_check = False
     return data_dic, data_dic_test, samplerate
 
-def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
+def set_items(data, INPUT_name, OUTPUT_name, length_item: int, from_gen=False):
     """This function pulls items from datasets and separates them into input and output for training and test sets.
      
     Args:
@@ -298,11 +301,11 @@ def set_items(data, INPUT_name, OUTPUT_name, length_item: int):
     """  
     # Calculation of the features and slicing of time series
     print("Constructing input array ...")
-    X = constr_feat(data, INPUT_name, length_item)
+    X = constr_feat(data, INPUT_name, length_item, from_gen=from_gen)
     X = X[list(X.keys())[0]] # Takes value out of only key of dictionary
     print(np.shape(X))
     print("Constructing output array ...")
-    y = constr_feat(data, OUTPUT_name, length_item)
+    y = constr_feat(data, OUTPUT_name, length_item, from_gen=from_gen)
     out_types = output_type(y, OUTPUT_name) # global list of types of output for loss and output layer
     y_list = [] # Sorting values of dictionary into list. Outputs need to be given to NN in list. Allows different formatted Truths
     for key in y.keys():
@@ -355,7 +358,7 @@ def output_type(dic_seq, OUTPUT_name):
                 out_types.append("No type detected")
     return out_types
 
-def constr_feat(data, NAME, length_item):
+def constr_feat(data, NAME, length_item, from_gen=False):
     """ This function constructs the feature from given datasets and lags of interest
     If given a timeseries it transforms it to a sequence with lag
     If given parameter it transform into sequence with constant value
@@ -365,6 +368,8 @@ def constr_feat(data, NAME, length_item):
     :param length_item: length of items given into the neural network
     :return sequence: numpy arrays of features. rows timeseries. Columns features
      """
+    # if from_gen == True:
+    #     samplerate = 256
     print(NAME)
     dic_seq = {}
     global symbols_size # saves size of BBI arrays globally. Is needed in NN construction
@@ -1087,7 +1092,7 @@ def pos_encoder(input):
     pos_enc = SinePositionEncoding()(input)
     return input + pos_enc
 
-def setup_Conv_Att_E(input_shape, size, samplerate):
+def setup_Conv_Att_E(input_shape, size, samplerate, out_types):
     """This function constructs neural network with a convolution and attention encoder
     
     builds neural network with different number of features
@@ -1170,7 +1175,7 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
         elif 'classificationSymbols' in out_types[x]: # symbols classification output
             branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
-            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            amount_cat = 4 # extract_number(out_types[x]) # extracts number of categories from type-description
             print("Anzahl an Symbol-Kategorien: ", amount_cat)
             branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
         
@@ -1204,7 +1209,7 @@ def setup_Conv_Att_E(input_shape, size, samplerate):
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
     return model, ds_samplerate, latent_a_f
 
-def setup_Conv_LSTM_E(input_shape, size, samplerate):
+def setup_Conv_LSTM_E(input_shape, size, samplerate, out_types):
     """This function constructs neural network with a convolution and attention encoder
     
     For Second Experiment
@@ -1304,7 +1309,7 @@ def setup_Conv_LSTM_E(input_shape, size, samplerate):
         elif 'classificationSymbols' in out_types[x]: # symbols classification output
             branch_dic["branch{0}".format(x)] = LSTM(int(size/2), return_sequences=True)(core)
             branch_dic["branch{0}".format(x)] = LSTM(int(size/4), return_sequences=True)(branch_dic["branch{0}".format(x)])
-            amount_cat = extract_number(out_types[x]) # extracts number of categories from type-description
+            amount_cat = 4 # extract_number(out_types[x]) # extracts number of categories from type-description
             print("Anzahl an Symbol-Kategorien: ", amount_cat)
             branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(branch_dic["branch{0}".format(x)])
         

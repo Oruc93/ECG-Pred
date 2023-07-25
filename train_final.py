@@ -21,6 +21,7 @@ import os
 import sys
 from keras.callbacks import EarlyStopping
 import tensorflow as tf
+import DataGen_lib as DGl
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
@@ -69,9 +70,13 @@ def train(total_epochs=250,
             mlflow.log_param("number of training examples", amount)
         elif dataset == "CVP":
             length_item = 300 # CVP Datensatz fest gelegte Länge
-            data, data_test, samplerate = tl.CVP_memorize(data_list)
-            amount = np.shape(data[list(data.keys())[0]])[0] # amount of training examples
+            samplerate = 256
+            # data, data_test, samplerate = tl.CVP_memorize(data_list)
+            amount = 170000 # np.shape(data[list(data.keys())[0]])[0] # amount of training examples
             mlflow.log_param("number of training examples", amount)
+            DGl.preprocess(500, INPUT_name, OUTPUT_name) # prepares data for generator
+            # define outtypes
+            out_types = DGl.output_type(OUTPUT_name)
         else:
             sys.exit("dataset not known")
         
@@ -80,17 +85,18 @@ def train(total_epochs=250,
         length_item = int(length_item*samplerate) # from seconds to samples
         mlflow.log_param("samplerate", samplerate) # samplerate in Hz
         
-        print("\nConstructing training data ...")
-        # Extracting items from training data
-        X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
-        print("Types of output: ", out_types)
-        tl.feat_check(X,y) # Plots example of dataset and some features
-        # exit()
-        
-        print("\nConstructing test data ...")
-        # Extracting items from test data
-        X_test, y_test, out_types = tl.set_items(data_test, INPUT_name, OUTPUT_name, length_item)
-        # tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
+        if dataset != "CVP":
+            print("\nConstructing training data ...")
+            # Extracting items from training data
+            X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
+            print("Types of output: ", out_types)
+            tl.feat_check(X,y) # Plots example of dataset and some features
+            # exit()
+            
+            print("\nConstructing test data ...")
+            # Extracting items from test data
+            X_test, y_test, out_types = tl.set_items(data_test, INPUT_name, OUTPUT_name, length_item)
+            # tl.check_data(X,y,X_test,y_test) # Plots diagramm of items and basic values
         
         
         # Initialize model
@@ -104,13 +110,13 @@ def train(total_epochs=250,
             mlflow.log_param("Architecture", "Conv_E_LSTM_Att_P")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
         if Arch == "Conv_Att_E":
-            model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Att Encoder
+            model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E((length_item,1), NNsize, int(samplerate), out_types)  # Conv Att Encoder
             mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
             mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
             mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
         if Arch == "Conv-LSTM-E":
             # Second Experiment
-            model, ds_samplerate = tl.setup_Conv_LSTM_E((np.shape(X)[1],1), NNsize, int(samplerate))  # Conv Encoder. LSTM+Dense Core + Branch
+            model, ds_samplerate = tl.setup_Conv_LSTM_E((length_item,1), NNsize, int(samplerate), out_types)  # Conv Encoder. LSTM+Dense Core + Branch
             mlflow.log_param("Architecture", "Conv-LSTM-E")  # logs type of architecture
             mlflow.log_param("down_samplerate", ds_samplerate)  # samplerate after downsampling
 
@@ -164,27 +170,33 @@ def train(total_epochs=250,
         # ca = tl.changeAlpha(alpha=alpha)
         
         # Train model on training set
-        print("\nTraining model...")
-        model.fit(X,  # sequence we're using for prediction
-                  y,  # sequence we're predicting
-                batch_size= 8,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
-                # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
-                epochs=total_epochs)
-        
-        # tl.save_XY(X,y)
-        # training_generator = tl.DataGenerator(X, y, length_item=length_item, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name)
-        # model.fit_generator(generator=training_generator,
-        #                     callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
-        #                     epochs=total_epochs
-        #                     )
+        if dataset != "CVP":
+            print("\nTraining model...")
+            model.fit(X,  # sequence we're using for prediction
+                    y,  # sequence we're predicting
+                    batch_size= 8,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                    # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
+                    epochs=total_epochs)
+        else:
+            training_generator = DGl.DataGenerator(INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=8, ToT="Training")
+            model.fit_generator(generator=training_generator,
+                                # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
+                                epochs=total_epochs
+                                )
 
         
         # Evaluate trained model
         print("\nEvaluating model...")
-        dic_eval = model.evaluate(X_test, y_test, batch_size=16, return_dict=True)
+        if dataset != "CVP":
+            dic_eval = model.evaluate(X_test, y_test, batch_size=8, return_dict=True)
+        else:
+            dic_eval = model.evaluate(generator=training_generator, return_dict=True)
         
         # Predict on test set and plot
-        y_pred = model.predict(X_test, batch_size=16)# int(np.shape(X_test)[0] / 3))
+        if dataset != "CVP":
+            y_pred = model.predict(X_test, batch_size=16)# int(np.shape(X_test)[0] / 3))
+        else:
+            y_pred = model.predict(generator=training_generator)
         
         if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
             y_pred = [y_pred]
