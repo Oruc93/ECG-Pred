@@ -5,6 +5,8 @@ Here we set up loops for training and testing different setups of NN
 import mlflow
 import os
 from train_final import train
+from load import load
+import DataGen_lib as DGl
 # from train_MS import train_MS
 
 # Sets target file for saving runs
@@ -12,8 +14,7 @@ from train_final import train
 
 # Zeitverzögerung
 # import time
-# time.sleep(6300)
-
+# time.sleep(10000)
 
 
 # Starting a Run by calling train.py
@@ -28,21 +29,45 @@ from train_final import train
 # length_item: number of data points in items
 
 Out_list = [{'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
-            {'Shannon': ["lag 0"]}, {'Polvar10': ["lag 0"]}, {'forbword': ["lag 0"]},
+            {'Shannon': ["lag 0"]}, 
+            {'Polvar10': ["lag 0"]}, 
+            {'forbword': ["lag 0"]},
             {'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
             {'Tacho': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
             {'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
             {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
             {'Tacho': ["lag 0"], 'forbword': ["lag 0"]},
             {'symbolsC': ["lag 0"], 'forbword': ["lag 0"]},
-            {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]}]
+            {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]},
+            {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]}]
+
+# import multiprocessing as mp
+# import numpy as np
+# import time
+# print("number of CPUs ", mp.cpu_count())
+# tic = time.time()
+# with mp.Pool(3) as pool:
+#       pool.map(DGl.preprocess, ["Training", "Test", "Proof"])
+#       print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
+# DGl.preprocess(None) # prepares data for generator. Only use if new dataset is used
 
 # First Experiment Different Pseudo-Task Combinations
 # Set experiment active or create new one
-experiment = mlflow.set_experiment("Experiment 1 - Pseudo-Tasks") # Conv-AE-LSTM-P good
+experiment = mlflow.set_experiment("Experiment 1 - Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
+# # load(NNsize=int(2**4), 
+# #       total_epochs=10, 
+# #       length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+# #       # INPUT_name = {"symbols": ["lag 0"]},
+# #       OUTPUT_name = {'forbword': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+# #       Arch = "Conv_Att_E",
+# #       dataset="CVP")
+
+
+
 for Out in Out_list:
+      print(Out)
       train(NNsize=int(2**4), 
             total_epochs=10, 
             length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
@@ -50,22 +75,52 @@ for Out in Out_list:
             OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
             Arch = "Conv_Att_E",
             dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
-      exit()
 
 # Second Experiment LSTM
-experiment = mlflow.set_experiment("Experiment 2 - LSTM") # Conv-AE-LSTM-P good
+experiment = mlflow.set_experiment("Experiment 2 - LSTM - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
-train(NNsize=int(2**4), 
-      total_epochs=10, 
-      length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
-      # INPUT_name = {"symbols": ["lag 0"]},
-      OUTPUT_name = {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
-      Arch = "Conv-LSTM-E",
-      dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+for Out in Out_list:
+      print(Out)
+      train(NNsize=int(2**4), 
+            total_epochs=10, 
+            length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+            # INPUT_name = {"symbols": ["lag 0"]},
+            OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+            Arch = "Conv-LSTM-E",
+            dataset="CVP")# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
 
-# Third Experiment
-# Hier weiter coden
+# Third Experiment Weighted Pseudo-Tasks
+experiment = mlflow.set_experiment("Experiment 3 - Weighted Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+for Out in Out_list:
+      if 'forbword' in list(Out.keys()):
+            print(Out)
+            train(NNsize=int(2**4), 
+                  total_epochs=10, 
+                  length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+                  # INPUT_name = {"symbols": ["lag 0"]},
+                  OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+                  Arch = "Conv_Att_E",
+                  dataset="CVP",
+                  weight_check=True)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+            
+# Fourth Experiment Unbranched Network
+experiment = mlflow.set_experiment("Experiment 4 - Unbranched Network - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+for Out in Out_list:
+      if 'forbword' in list(Out.keys()):
+            print(Out)
+            train(NNsize=int(2**4), 
+                  total_epochs=10, 
+                  length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+                  # INPUT_name = {"symbols": ["lag 0"]},
+                  OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+                  Arch = "Conv_Att_E_no_branches",
+                  dataset="CVP",
+                  weight_check=True)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
 
 
 # for N in range(16,18,1):

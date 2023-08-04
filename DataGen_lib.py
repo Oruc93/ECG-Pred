@@ -8,22 +8,30 @@ import json
 import matplotlib.pyplot as plt
 import matlab.engine
 import time
-import multiprocessing as mp
+# import multiprocessing as mp
 
-def preprocess(chunk_size:int, INPUT_name:dict, OUTPUT_name:dict):
+def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
     """function for preprocessing huge dataset
     it prepares features of ecg
     forms them in new chunks and saves them as npy-files or json-files
 
+    ToT_check = desired set in string Training, Test or Proof. Input None for all three options
+    
     Returns:
         chunk_size(int): number of samples in new chunks containing processed data
     """
+    if ToT_check != None:
+        if not(ToT_check in ["Training", "Test", "Proof"]):
+            print("ToT_check named wrong: ", ToT_check)
+            exit()
     global data_list, config
     data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
     data_list = tl.unique(data_list)
     # Load config
     with open('data/CVP-dataset/dataset/CONFIG', 'rb') as fp:
         config = json.load(fp)
+    with open('data/current-set/CONFIG', 'w') as file:
+        file.write(json.dumps(config))
     # with open('data/CVP-dataset/dataset/CONFIG', 'r') as file:
     #     str_config = file.read()
     #     str_config = str_config.replace("true", "True") # Fixing boolean value
@@ -35,24 +43,34 @@ def preprocess(chunk_size:int, INPUT_name:dict, OUTPUT_name:dict):
     global samplerate, chunk_path, new_chunk_path, segment_count
     samplerate = dic_samplerate[config["study_id"]]
     chunk_path = {"Training":'data/CVP-dataset/dataset/', 
-                  "Test":'data/CVP-dataset/dataset/evaluation/'}
+                  "Test":'data/CVP-dataset/dataset/evaluation/',
+                  "Proof":'data/CVP-dataset/dataset/proof/'}
     new_chunk_path = {"Training":'data/current-set/', 
-                     "Test":'data/current-set/evaluation/'}
+                     "Test":'data/current-set/evaluation/',
+                     "Proof":'data/current-set/proof/'}
     segment_count = {"Training":int(config["segment_count"] * 0.8), 
-                     "Test":int(config["segment_count"] * 0.2)}
-    print(segment_count)
+                     "Test":int(config["segment_count"] * 0.2),
+                     "Proof":int(21899//chunk_size*chunk_size)} # number of segments in full chunks
     tic = time.time()
     # loop training and test
-    for ToT in ["Training", "Test"]:
+    for ToT in ["Training", "Test", "Proof"]:
+        if ToT_check != None:
+            if ToT_check != ToT:
+                break
+        print("Preprocessing chunks of ",ToT)
         new_chunk_ID = 0 # ID for new chunks
         
         # Find first and last chunk of dataset
-        chunk_list = [f for f in os.listdir(chunk_path[ToT]) if os.path.isfile(os.path.join(chunk_path[ToT], f))]
+        chunk_list = [f for f in os.listdir(chunk_path[ToT]) if (os.path.isfile(os.path.join(chunk_path[ToT], f)) and not("patient_id" in f))]
         chunk_list = [int(f[:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
         chunk_list.sort()
         chunk_start = min(chunk_list) # we save lowest as starting point
         chunk_ID = chunk_start
         chunk_end = max(chunk_list) # se save highest as ending point
+        if ToT == "Proof":
+            print(len(chunk_list))
+            chunk_list = chunk_list[:-1]
+            print(len(chunk_list))
         
         # create array of segment indices and containing chunk
         print("Mapping Segment to containing chunk ...")
@@ -87,43 +105,8 @@ def preprocess(chunk_size:int, INPUT_name:dict, OUTPUT_name:dict):
                     OUTPUT_name))
             print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             tic = time.time()
-            
-        """# Load first chunk
-        chunk = np.load(chunk_path[ToT] + str(chunk_ID) + '.npy', allow_pickle=True)
-        
-        dataset_chunk = pandas.DataFrame( # new chunk to contain processed and batched data
-            columns=["ecg", "r_pos", "snr", "subject_id", "tacho"])
-        
-        segment_ID = int(0)
-        for i in range(segment_count[ToT]):
-            if segment_ID == len(chunk[:,0]): # check if end of chunk already reached. If yes go to next chunk
-                segment_ID = int(0)
-                chunk_ID += 1
-                print("ID des Source chunks", chunk_ID)
-                if chunk_ID > chunk_end: # check if last chunk already reached. If yes break loop
-                    break
-                chunk = np.load(chunk_path[ToT] + str(chunk_ID) + '.npy', allow_pickle=True) # load next chunk
-            
-            dataset_chunk.loc[len(dataset_chunk)] = chunk[segment_ID,:]
-            segment_ID += 1
-            # print("Länge des dataset_chunk", len(dataset_chunk))
-            if len(dataset_chunk)>=chunk_size: # check if batch size is reached
-                data = dataset_chunk.to_numpy()
-                
-                # Seperate Features into dictionary values
-                data_dic = feat_to_dic(data, data_list)
-                
-                X, y_list, out_types = set_items(data_dic, INPUT_name, OUTPUT_name, config["segment_length"]*samplerate)
-                
-                np.save( # save preprocessed and batched input data in chunk as numpy array
-                    new_chunk_path[ToT] + f"X-{new_chunk_ID}", X, allow_pickle=True)
-                # save preprocessed and batched output data in chunk as list
-                with open(new_chunk_path[ToT] + f"y-{new_chunk_ID}", 'wb') as fp:
-                    pickle.dump(y_list, fp)
-                new_chunk_ID += 1
-                dataset_chunk = pandas.DataFrame( # new chunk to contain processed and batched data
-                                                 columns=["ecg", "r_pos", "snr", "subject_id", "tacho"])
-                print("Sekunden für ein Batch", np.round(time.time()-tic,3))"""
+        with open('data/current-set/OUTPUT_TYPE', 'w') as file:
+            file.write(json.dumps(output_type(OUTPUT_name)))
         
 def load(seg_n):
     """loads batch, preprocess and saves in new chunk
@@ -161,6 +144,9 @@ def load(seg_n):
         
     data = dataset_chunk.to_numpy()
     data_dic = feat_to_dic(data, data_list)
+    # print(data_dic['subject_id'])
+    # print(type(data_dic['subject_id']))
+    # exit()
     X, y_list, out_types = set_items(data_dic, INPUT_name, OUTPUT_name, config["segment_length"]*samplerate)
     print("Saving new chunk ", new_chunk_ID)
     # save preprocessed and batched input data in chunk as numpy array
@@ -168,6 +154,8 @@ def load(seg_n):
     # save preprocessed and batched output data in chunk as list
     with open(new_chunk_path[ToT] + f"y-{new_chunk_ID}", 'wb') as fp:
         pickle.dump(y_list, fp)
+    # save batched patient id in chunk as numpy array seperate from dataset
+    np.save(new_chunk_path[ToT] + f"patient_id-{new_chunk_ID}", data_dic['subject_id'], allow_pickle=True)
     # print("Sekunden für ein Batch", np.round(time.time()-tic,3))
     print(new_chunk_ID)            
 
@@ -505,6 +493,94 @@ def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
     
     return symbols, words
 
+def load_chunk_to_variable(ToT, out_types):
+    """_summary_
+
+    Returns:
+        X (np.array): Input data. Typically only contains ECG data
+        y (list containing np.arrays): Output data. Contains feature which are to predicted by NN
+        patient_ID (np.array): one-dimensional. patient_IDs of examples
+    """
+    with open('data/current-set/CONFIG', 'rb') as fp:
+        config = json.load(fp)
+    with open('data/current-set/OUTPUT_TYPE', 'rb') as file:
+        output_type_chunks = json.load(file)
+        # print(output_type_chunks)
+        out_dic = {}
+        for n in range(len(output_type_chunks)):
+            out_dic[output_type_chunks[n]] = n
+        print("data structure of chunks", out_dic)
+    # length_item = int(config["segment_length"]) # length of ecg inputs in s
+    # indexes = np.arange(int(config["segment_count"]))
+    chunk_path_ = {"Training":'data/CVP-dataset/dataset/', 
+                  "Test":'data/CVP-dataset/dataset/evaluation/',
+                  "Proof":'data/CVP-dataset/dataset/proof/'}
+    chunk_path = chunk_path_[ToT]
+    chunk_list = [f for f in os.listdir(chunk_path) if (os.path.isfile(os.path.join(chunk_path, f)) and not("patient_id" in f))]
+    chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
+    chunk_list.sort()
+    # segment_count = {"Training":int(config["segment_count"] * 0.8), 
+    #                  "Test":int(config["segment_count"] * 0.2)}
+    # dic_samplerate = {"RX": 256, # dictionary with samplerates of studies
+    #                   "CVD": 256,
+    #                   "IH": 250}
+    # samplerate = dic_samplerate[config["study_id"]]
+    
+    # X = np.array((segment_count[ToT], samplerate*length_item))
+    # with open(chunk_path + 'y-' + str(chunk_ID), 'rb') as fp:
+    #     y_chunk = pickle.load(fp)
+    y = []
+    # for n in range(len(y_chunk)):
+    #     y.append(np.array())
+    for chunk_ID in chunk_list:
+    # chunk_ID = int(np.floor(index//chunk_size)) # integer division to find right chunk with batch
+        X_chunk = np.load(chunk_path + 'X-' + str(chunk_ID) + '.npy', allow_pickle=True)
+        # b_in_c = int(chunk_size / batch_size) # number of batches in chunk
+        # batch = index % b_in_c # modulo to find batch in chunk
+        # X = X_chunk[batch*batch_size : (batch+1)*batch_size,:]
+        
+        with open(chunk_path + 'y-' + str(chunk_ID), 'rb') as fp:
+            y_chunk = pickle.load(fp)
+            
+        patient_chunk = np.load(chunk_path + 'patient_id-' + str(chunk_ID) + '.npy', allow_pickle=True)
+
+        print(chunk_ID)
+        if chunk_ID == 0:
+            # Initiate variables with fixed size for X, y and patient_ID
+            X = np.tile(X_chunk, (len(chunk_list), 1))
+            patient_ID = np.tile(patient_chunk, len(chunk_list))
+            # print(np.shape(X))
+            # print(np.shape(patient_ID))
+            for n in range(len(out_types)):
+                if len(np.shape(y_chunk[out_dic[out_types[n]]])) == 1:
+                    y.append(np.tile(y_chunk[out_dic[out_types[n]]], len(chunk_list)))
+                else:
+                    y.append(np.tile(y_chunk[out_dic[out_types[n]]], (len(chunk_list), 1)))
+                # y.append([])
+                # y[n] = y_chunk[out_dic[out_types[n]]]
+                # y.append(np.tile(y_chunk[out_dic[out_types[n]]], len(chunk_list)))
+                # y.append(np.zeros(len(chunk_list)*len(y_chunk[out_dic[out_types[n]]])))
+                # y[n][chunk_ID*len(y_chunk[out_dic[out_types[n]]]):(chunk_ID+1)*len(y_chunk[out_dic[out_types[n]]])] = y_chunk[out_dic[out_types[n]]]
+                # print(np.shape(y[n]))
+        else:
+            # X = np.concatenate((X, X_chunk), axis=0)
+            X[chunk_ID*len(X_chunk[:,0]):(chunk_ID+1)*len(X_chunk[:,0]), :] = X_chunk
+            patient_ID[chunk_ID*len(patient_chunk):(chunk_ID+1)*len(patient_chunk)] = patient_chunk
+            # print(np.shape(X_chunk))
+            # print(X[chunk_ID*len(X_chunk[:,0]):(chunk_ID+1)*len(X_chunk[:,0]), :])
+            # print(np.shape(X))
+            for n in range(len(out_types)):
+                if len(np.shape(y[n])) == 1:
+                    # y[n] = np.hstack((y[n], y_chunk[out_dic[out_types[n]]]))
+                    y[n][chunk_ID*len(y_chunk[out_dic[out_types[n]]]):(chunk_ID+1)*len(y_chunk[out_dic[out_types[n]]])] = y_chunk[out_dic[out_types[n]]]
+                    # print(y[n][chunk_ID*len(y_chunk[out_dic[out_types[n]]]):(chunk_ID+1)*len(y_chunk[out_dic[out_types[n]]])])
+                else:
+                    # y[n] = np.concatenate((y[n], y_chunk[out_dic[out_types[n]]]), axis=0)
+                    y[n][chunk_ID*len(y_chunk[out_dic[out_types[n]]][:,0]):(chunk_ID+1)*len(y_chunk[out_dic[out_types[n]]][:,0]),:] = y_chunk[out_dic[out_types[n]]]
+    if len(y)>10: # check if y consists only of one feature
+        y = [y]
+    return X, y, patient_ID
+
 class DataGenerator(K.utils.Sequence):
     "Generates data for Keras of CVP dataset"
     def __init__(self, chunk_size, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, batch_size=32, ToT="Training"): # , shuffle=False
@@ -512,31 +588,30 @@ class DataGenerator(K.utils.Sequence):
         self.INPUT_name = INPUT_name
         self.OUTPUT_name = OUTPUT_name
         self.data_list = tl.unique(list(OUTPUT_name.keys()) + list(INPUT_name.keys())) # list of mentioned features
+        self.out_types = output_type(OUTPUT_name)
+        with open('data/current-set/OUTPUT_TYPE', 'rb') as file:
+            self.output_type_chunks = json.load(file)
         self.batch_size = batch_size
         self.chunk_size = chunk_size # size of chunks containing preprocessed data
         if chunk_size % batch_size != 0:
-            print("chunk ", chunk_size," and batch size ", batch_size," must have modulo 0")
+            print("Error: chunk ", chunk_size," and batch size ", batch_size," must have modulo 0")
+            exit()
         # self.shuffle = shuffle
         # self.list_IDs = list_IDs
         # self.data_X = X
         # self.data_y = y
         "Loading CONFIG-file"
-        # config = load('data/CVP-dataset/dataset/CONFIG')
-        with open('data/CVP-dataset/dataset/CONFIG', 'rb') as fp:
+        with open('data/current-set/CONFIG', 'rb') as fp:
             self.config = json.load(fp)
         self.length_item = int(self.config["segment_length"]) # length of ecg inputs in s
         # self.indexes = np.arange(int(self.config["segment_count"]))
-        if self.ToT == "Training":
-            return int(np.floor(self.config["segment_count"]*0.8/self.batch_size))
-        else:
-            return int(np.floor(self.config["segment_count"]*0.2/self.batch_size))
         self.ToT = ToT
-        if ToT == "Training":
-            self.chunk_path = 'data/current-set/'
-        else:
-            self.chunk_path = 'data/current-set/evaluation/'
-        chunk_list = [f for f in os.listdir(self.chunk_path) if os.path.isfile(os.path.join(self.chunk_path, f))]
-        chunk_list = [int(f[:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
+        chunk_path_ = {"Training":'data/current-set/', 
+                        "Test":'data/current-set/evaluation/',
+                        "Proof":'data/current-set/proof/'}
+        self.chunk_path = chunk_path_[ToT]
+        chunk_list = [f for f in os.listdir(self.chunk_path) if (os.path.isfile(os.path.join(self.chunk_path, f)) and not("patient_id" in f))]
+        chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
         self.chunk_start = min(chunk_list) # we save lowest as starting point
         self.chunk_ID = self.chunk_start
         self.chunk_end = max(chunk_list) # se save highest as ending point
@@ -545,10 +620,14 @@ class DataGenerator(K.utils.Sequence):
     def __len__(self):
         'Denotes the number of batches per epoch'
         # return int(np.floor(len(self.data_X[:,0]) / self.batch_size))
-        if self.ToT == "Training":
-            return int(np.floor(self.config["segment_count"]*0.8/self.batch_size))
-        else:
-            return int(np.floor(self.config["segment_count"]*0.2/self.batch_size))
+        len_ = {"Training": int(np.floor(self.config["segment_count"]*0.8/ self.batch_size)), 
+                "Test": int(np.floor(self.config["segment_count"]*0.2/ self.batch_size)),
+                "Proof": int(np.floor(21600/ self.batch_size))}
+        return len_[self.ToT]
+        # if self.ToT == "Training":
+        #     return int(np.floor(self.config["segment_count"]*0.8/self.batch_size))
+        # else:
+        #     return int(np.floor(self.config["segment_count"]*0.2/self.batch_size))
     
     def __getitem__(self, index):
         'Generate one batch of data'
@@ -567,7 +646,7 @@ class DataGenerator(K.utils.Sequence):
         'Updates indexes after each epoch'
         # self.indexes = np.arange(int(self.config["segment_count"]))
         # self.segment_ID = int(0)
-        self.chunk_ID = 0
+        # self.chunk_ID = 0
         # if self.shuffle == True:
         #     np.random.shuffle(self.indexes)
     
@@ -575,11 +654,22 @@ class DataGenerator(K.utils.Sequence):
         """Loads batches from chunks
 
         Args:
-            chunk_ID (int): ID of needed chunk
+            index (int): number of batch
         """
-        X = np.load(self.chunk_path + 'X-' + str(index) + '.npy', allow_pickle=True)
-        with open(self.chunk_path + 'y-' + str(index), 'rb') as fp:
-            y = pickle.load(fp)
+        chunk_ID = int(np.floor(index//self.chunk_size)) # integer division to find right chunk with batch
+        X_chunk = np.load(self.chunk_path + 'X-' + str(chunk_ID) + '.npy', allow_pickle=True)
+        b_in_c = int(self.chunk_size / self.batch_size) # number of batches in chunk
+        batch = index % b_in_c # modulo to find batch in chunk
+        X = X_chunk[batch*self.batch_size : (batch+1)*self.batch_size,:]
+        with open(self.chunk_path + 'y-' + str(chunk_ID), 'rb') as fp:
+            y_chunk = pickle.load(fp)
+        y = []
+        # for n in range(len(y_chunk)):
+            # y.append(y_chunk[n][batch*self.batch_size : (batch+1)*self.batch_size])
+        for out in self.out_types:
+            n = self.output_type_chunks.index(out)
+            # print(n)
+            y.append(y_chunk[n][batch*self.batch_size : (batch+1)*self.batch_size])
         return X, y
     
     # def __data_generation_old(self, indexes):

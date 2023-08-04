@@ -1,6 +1,8 @@
 # This library if for processing an ECG to BBI, words, symbols and non-linear parameters
 
 import os
+import json
+import pickle
 from random import sample
 import numpy as np
 import h5py
@@ -1092,7 +1094,7 @@ def pos_encoder(input):
     pos_enc = SinePositionEncoding()(input)
     return input + pos_enc
 
-def setup_Conv_Att_E(input_shape, size, samplerate, out_types):
+def setup_Conv_Att_E(input_shape, size, samplerate, out_types, weight_check=False):
     """This function constructs neural network with a convolution and attention encoder
     
     builds neural network with different number of features
@@ -1112,7 +1114,8 @@ def setup_Conv_Att_E(input_shape, size, samplerate, out_types):
                     ds_samplerate. samplerate in latent space at Core
                     latent_a_f. number of features in latent space at core
     """
-    
+    global check_weight # needed later for weight change
+    check_weight = weight_check
         
     # here we determine to you use mixed precision
     # Meaning that the forwardpropagation is done in float16 for higher throughput
@@ -1188,7 +1191,7 @@ def setup_Conv_Att_E(input_shape, size, samplerate, out_types):
             branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
             
         elif 'regressionSNR' in out_types[x]: # SNR regression output
-            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(branch_dic["branch{0}".format(x)])
+            branch_dic["branch{0}".format(x)] = attention_lib.PositionalEmbedding(d_model=amount_filter, length=length)(core)
             branch_dic["branch{0}".format(x)] = attention_lib.EncoderLayer(d_model=amount_filter, num_heads=10, dff=length)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(branch_dic["branch{0}".format(x)])
             branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="SNR_output")(branch_dic["branch{0}".format(x)])
@@ -1341,11 +1344,163 @@ def setup_Conv_LSTM_E(input_shape, size, samplerate, out_types):
         
     # Add loss manually, because we use a custom loss with global variable use
     # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
+    return model, ds_samplerate
+
+def setup_Conv_Att_E_no_branches(input_shape, size, samplerate, out_types, weight_check=False):
+    """This function constructs neural network with a convolution and attention encoder
+    
+    builds neural network with different number of features
+    Encoder part are convolutional layers which downsampling to eightth length of timeseries with every layer
+    - with kernelsize corresponding to two seconds. 2s snippets contain one heartbeat for sure
+    - Downsampling of time series to 4Hz with 16 filters
+    
+    second part is the core with share capacity of neural network and biggest part of capacity. 
+    Core is made out of attention layers for embedding latent image and Dense layer for individual branching
+    
+    No independent branching before output
+
+    :param input_shape: the shape of the input array
+    :param size: not needed anymore!!!
+    :param samplerate: samplerate of measurement. Needed for kernel size in conv layer
+    :return model:  keras model
+                    ds_samplerate. samplerate in latent space at Core
+                    latent_a_f. number of features in latent space at core
+    """
+    global check_weight # needed later for weight change
+    check_weight = weight_check
+        
+    # here we determine to you use mixed precision
+    # Meaning that the forwardpropagation is done in float16 for higher throughput
+    # And Backpropagation in float32 to keep high precision in weight adjusting
+    # Warning: If custom training is used. Loss Scaling is needed. See https://www.tensorflow.org/guide/mixed_precision
+    mixed_precision.set_global_policy('mixed_float16')
+    print("Input Shape:", input_shape)
+    # initialize our model
+    # our input layer
+    Input_encoder = Input(shape=input_shape)  # np.shape(X)[1:]
+    # downsampling step of 2 is recommended. This way a higher resolution is maintained in the encoder
+    ds_step =  int(2**3)# factor of down- and upsampling of ecg timeseries
+    ds_samplerate = int(2**2) # Ziel samplerate beim Downsampling
+    orig_a_f = int(2**3) # first filter amount. low amount of filters ensures faster learning and training
+    amount_filter = orig_a_f
+    encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     samplerate*2, # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen
+                     activation = "relu"
+                     )(Input_encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+    encoder = AveragePooling1D(ds_step)(encoder)
+    length = input_shape[0]/ds_step
+    print("Downsampled to: ", int(samplerate/ds_step), " Hz") # A samplerate under 100 Hz will decrease analysis quality. 10.4258/hir.2018.24.3.198
+    
+    # our hidden layer / encoder
+    # decreasing triangle
+    k = ds_step # needed to adjust Kernelsize to downsampled samplerate
+    while 1 < int(samplerate/k)/ds_samplerate: # start loop so long current samplerate is above goal samplerate
+        if ds_samplerate > int(samplerate/k/ds_step):
+            ds_step = 2
+        k *= ds_step
+        amount_filter *= 2
+        encoder = Conv1D(amount_filter, # number of columns in output. filters
+                     int(samplerate/k), # kernel size. We look at 2s snippets
+                     padding = "same", # only applies kernel if it fits on input. No Padding
+                     dilation_rate=2,
+                     activation = "relu"
+                     )(encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
+        encoder = AveragePooling1D(ds_step)(encoder)
+        length = length/ds_step
+        print("Downsampled to: ", int(samplerate/k), " Hz")
+    
+    core = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
+    
+    for depth in range(3):
+        core = Dense(amount_filter, activation='relu')(core)
+    
+    
+    branch_dic = {}  # dictionary for the branches
+    latent_a_f = amount_filter
+    core_length = length # for resetting length tracking
+    for x in range(len(out_types)):
+        length = core_length
+        if 'regressionTacho' in out_types[x]: # Tachogram regression output
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="Tacho_output")(core)# branch_dic["branch{0}".format(x)])
+        
+        elif 'classificationSymbols' in out_types[x]: # symbols classification output
+            amount_cat = 4 # extract_number(out_types[x]) # extracts number of categories from type-description
+            print("Anzahl an Symbol-Kategorien: ", amount_cat)
+            branch_dic["branch{0}".format(x)] = Dense(amount_cat, activation='softmax' , name='Symbols_output')(core)
+        
+        elif out_types[x] in ["Shannon", "Polvar10", "forbword"]: # Shannon entropy prediction
+            branch_dic["branch{0}".format(x)] = Dense(1)(core)
+            branch_dic["branch{0}".format(x)] = Flatten()(branch_dic["branch{0}".format(x)])
+            name_output = out_types[x] + "_output"
+            branch_dic["branch{0}".format(x)] = Dense(1, activation='linear' , name=name_output)(branch_dic["branch{0}".format(x)])
+            
+        elif 'regressionSNR' in out_types[x]: # SNR regression output
+            branch_dic["branch{0}".format(x)] = AveragePooling1D(4)(core)
+            branch_dic["branch{0}".format(x)] = Dense(1, activation="linear", name="SNR_output")(branch_dic["branch{0}".format(x)])
+            
+    # Concating outputs
+    if len(out_types)>1: # check if multiple feature in output of NN
+        # concatenate layer of the branch outputs
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        model = Model(Input_encoder, branch_dic.values())
+    else: # single feature in output
+        print("Branch Werte")
+        print("List of branches", branch_dic.values())
+        print(branch_dic["branch0"])
+        model = Model(Input_encoder, branch_dic["branch0"])
+        
+    # Add loss manually, because we use a custom loss with global variable use
+    # model.add_loss(lambda: my_loss_fn(y_true, con, OUTPUT_name))
     return model, ds_samplerate, latent_a_f
 
 def ECG_loss(y_true, y_pred):
         """
         Custom LOSS function
+
+        Goal:  weighted sum of LOSSes of each Feature
+                - Weights are for different columns of Output Tensor
+                    - Weights decrease for each feature
+                    - this way the gradient for each additional feature is more gentle compared to previous features
+                    - this gives a loose order in which the LOSSes are minimized
+        """
+        squarred_differences = []
+        mse = K.losses.MeanSquaredError() # function for LOSS of choice
+        squarred_differences.append(tf.cast(mse(y_true[:,:], y_pred[:,:]),tf.float32)) # best results with multiplication of 10 to power of k with features from easy to difficult
+        sd = tf.stack(squarred_differences) # Concat the LOSSes of each feature
+        
+        # Here we calculate the mean of each column
+        loss = tf.reduce_mean(sd, axis=-1)  # Note the `axis=-1`
+        
+        return loss
+
+def pseudo_loss(y_true, y_pred):
+        """
+        LOSS function for pseudo-tasks
+
+        Goal:  LOSS is weighted and diminishes with every epoch relative to main task
+        """
+        squarred_differences = []
+        mse = K.losses.MeanSquaredError() # function for LOSS of choice
+        squarred_differences.append(tf.cast(mse(y_true[:,:], y_pred[:,:]),tf.float32)) # best results with multiplication of 10 to power of k with features from easy to difficult
+        sd = tf.stack(squarred_differences) # Concat the LOSSes of each feature
+        
+        # Here we calculate the mean of each column
+        loss = tf.reduce_mean(sd, axis=-1)  # Note the `axis=-1`
+        
+        if 'check_weight' in globals():
+            if check_weight == True:
+                return 1/(float(changeAlpha.alpha)+1) * loss
+            else:
+                return loss
+        else:
+            return loss
+    
+def task_loss(y_true, y_pred):
+        """
+        LOSS function for the main task forbword
 
         Goal:  weighted sum of LOSSes of each Feature
                 - Weights are for different columns of Output Tensor
@@ -1453,7 +1608,13 @@ def symbols_loss_uniform(y_true, y_pred):
     # print("y_true", y_true)
     # print("y_pred", y_pred)
     # print(scce(y_true, y_pred))
-    return scce(y_true, y_pred)
+    if 'check_weight' in globals():
+        if check_weight == True:
+            return 1/(float(changeAlpha.alpha)+1) * scce(y_true, y_pred)
+        else:
+            return scce(y_true, y_pred)
+    else:
+        return scce(y_true, y_pred)
 
 def extract_number(string:str):
     """ Extracts numeric elements from string as integer
