@@ -1159,6 +1159,7 @@ def setup_Conv_Att_E(input_shape, size, samplerate, out_types, weight_check=Fals
         length = length/ds_step
         print("Downsampled to: ", int(samplerate/k), " Hz")
     
+    # global dtype
     core = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     
     for depth in range(3):
@@ -1411,6 +1412,7 @@ def setup_Conv_Att_E_no_branches(input_shape, size, samplerate, out_types, weigh
         length = length/ds_step
         print("Downsampled to: ", int(samplerate/k), " Hz")
     
+    # global dtype
     core = attention_lib.Encoder(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     
     for depth in range(3):
@@ -1492,7 +1494,8 @@ def pseudo_loss(y_true, y_pred):
         
         if 'check_weight' in globals():
             if check_weight == True:
-                return 1/(float(changeAlpha.alpha)+1) * loss
+                # print(dtype)
+                return 1/(tf.cast(changeAlpha.alpha, loss.dtype)+1) * loss
             else:
                 return loss
         else:
@@ -1534,12 +1537,17 @@ def parameter_loss(y_true, y_pred):
 
 class changeAlpha(K.callbacks.Callback):
     def __init__(self, alpha):
-        self.alpha = alpha 
+        self.alpha = alpha
+        changeAlpha.alpha = tf.Variable(1)
 
     def on_epoch_begin(self, epoch, logs={}):
         K.backend.set_value(self.alpha, epoch)
+        K.backend.set_value(changeAlpha.alpha, epoch)
         print("Setting alpha to =", str(self.alpha))
-
+        
+    # def alpha(self):
+    #     return self.alpha
+    
 def wrapper(param1):
     """ Not in use!!!
     
@@ -1610,7 +1618,7 @@ def symbols_loss_uniform(y_true, y_pred):
     # print(scce(y_true, y_pred))
     if 'check_weight' in globals():
         if check_weight == True:
-            return 1/(float(changeAlpha.alpha)+1) * scce(y_true, y_pred)
+            return 1/(tf.cast(changeAlpha.alpha, scce(y_true, y_pred).dtype) +1) * scce(y_true, y_pred)
         else:
             return scce(y_true, y_pred)
     else:

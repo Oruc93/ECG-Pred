@@ -180,8 +180,8 @@ class Encoder(tf.keras.layers.Layer):
 
         for i in range(self.num_layers):
             x = self.enc_layers[i](x, w_2=w_2)
-
-        return x  # Shape `(batch_size, seq_len, d_model)`.
+            
+        return x # Shape `(batch_size, seq_len, d_model)`.
 
 def get_sliding_window_attention_mask(inputs, w_2):
     """Generates sliding window mask for multi-head attention layers

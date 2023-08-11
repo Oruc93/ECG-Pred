@@ -512,9 +512,9 @@ def load_chunk_to_variable(ToT, out_types):
         print("data structure of chunks", out_dic)
     # length_item = int(config["segment_length"]) # length of ecg inputs in s
     # indexes = np.arange(int(config["segment_count"]))
-    chunk_path_ = {"Training":'data/CVP-dataset/dataset/', 
-                  "Test":'data/CVP-dataset/dataset/evaluation/',
-                  "Proof":'data/CVP-dataset/dataset/proof/'}
+    chunk_path_ = {"Training":'data/current-set/', 
+                     "Test":'data/current-set/evaluation/',
+                     "Proof":'data/current-set/proof/'}
     chunk_path = chunk_path_[ToT]
     chunk_list = [f for f in os.listdir(chunk_path) if (os.path.isfile(os.path.join(chunk_path, f)) and not("patient_id" in f))]
     chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
