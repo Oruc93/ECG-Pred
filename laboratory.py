@@ -5,7 +5,7 @@ Here we set up loops for training and testing different setups of NN
 import mlflow
 import os
 from train_final import train
-from load import load
+from load import load_proof, load_test
 import DataGen_lib as DGl
 # from train_MS import train_MS
 
@@ -66,7 +66,8 @@ Out_list = [{'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'P
 experiment = mlflow.set_experiment("Experiment 1 - Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
-load(experiment.experiment_id)
+load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
 
 # for Out in Out_list[1:]:
 #       print(Out)
@@ -80,8 +81,11 @@ load(experiment.experiment_id)
 
 ################################################################################################################
 # Second Experiment LSTM
-# experiment = mlflow.set_experiment("Experiment 2 - LSTM - 80:20:dNC") # Conv-AE-LSTM-P good
-# print("Experiment_id: {}".format(experiment.experiment_id))
+experiment = mlflow.set_experiment("Experiment 2 - LSTM - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
 
 # for Out in Out_list:
 #       print(Out)
@@ -95,8 +99,11 @@ load(experiment.experiment_id)
 
 ################################################################################################################
 # Third Experiment Weighted Pseudo-Tasks
-# experiment = mlflow.set_experiment("Experiment 3 - Weighted Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
-# print("Experiment_id: {}".format(experiment.experiment_id))
+experiment = mlflow.set_experiment("Experiment 3 - Weighted Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
 
 # for Out in Out_list:
 #       if 'forbword' in list(Out.keys()):
@@ -112,31 +119,31 @@ load(experiment.experiment_id)
 
 ################################################################################################################
 # Fourth Experiment Unbranched Network
-# experiment = mlflow.set_experiment("Experiment 4 - Unbranched Network - 80:20:dNC") # Conv-AE-LSTM-P good
-# print("Experiment_id: {}".format(experiment.experiment_id))
+experiment = mlflow.set_experiment("Experiment 4 - Unbranched Network - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
 
-# # for Out in Out_list:
-# for Out in [{'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]},
-#             {'Tacho': ["lag 0"], 'forbword': ["lag 0"]},
-#             {'symbolsC': ["lag 0"], 'forbword': ["lag 0"]},
-#             {'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]},
-#             {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'forbword': ["lag 0"]}]:
-#       if 'forbword' in list(Out.keys()):
-#             print(Out)
-#             train(NNsize=int(2**4), 
-#                   total_epochs=10, 
-#                   length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
-#                   # INPUT_name = {"symbols": ["lag 0"]},
-#                   OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
-#                   Arch = "Conv_Att_E_no_branches",
-#                   dataset="CVP",
-#                   weight_check=True)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+for Out in Out_list:
+      if 'forbword' in list(Out.keys()):
+            print(Out)
+            train(NNsize=int(2**4), 
+                  total_epochs=10, 
+                  length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+                  # INPUT_name = {"symbols": ["lag 0"]},
+                  OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+                  Arch = "Conv_Att_E_no_branches",
+                  dataset="CVP",
+                  weight_check=False)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+
+load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
+
+exit()
 
 #################################################################################################
 
 # Fifth Experiment Pretraining
-# experiment = mlflow.set_experiment("Experiment 5 - Pretrained Network - 80:20:dNC") # Conv-AE-LSTM-P good
-# print("Experiment_id: {}".format(experiment.experiment_id))
+experiment = mlflow.set_experiment("Experiment 5 - Pretrained Network - 80:20:dNC") # Conv-AE-LSTM-P good
+print("Experiment_id: {}".format(experiment.experiment_id))
 
 # nicht ready
 for Out in Out_list:
@@ -150,6 +157,9 @@ for Out in Out_list:
                   Arch = "Conv_Att_E_no_branches",
                   dataset="CVP",
                   weight_check=True)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
+            
+load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
 
 # for N in range(16,18,1):
 #       print(N)
