@@ -79,6 +79,8 @@ def load_proof(ExpID, total_epochs=250,
             # control_patient_list = ["RX17101", "RX10603", "RX05701", "RX10638", "RX35005", "RX05715", "RX05711", "RX17105", "RX12813", "RX10612"]
             de_novo_dic = {"RX02608":[], "RX05718":[], "RX06212":[], "RX10611":[], "RX10618":[], "RX12801":[], "RX12826":[], "RX14305":[], "RX14806":[], "RX35002":[]}
             control_dic = {"RX17101":[], "RX10603":[], "RX05701":[], "RX10638":[], "RX35005":[], "RX05715":[], "RX05711":[], "RX17105":[], "RX12813":[], "RX10612":[]}
+            de_novo_dic_test = {"RX02608":[], "RX05718":[], "RX06212":[], "RX10611":[], "RX10618":[], "RX12801":[], "RX12826":[], "RX14305":[], "RX14806":[], "RX35002":[]}
+            control_dic_test = {"RX17101":[], "RX10603":[], "RX05701":[], "RX10638":[], "RX35005":[], "RX05715":[], "RX05711":[], "RX17105":[], "RX12813":[], "RX10612":[]}
             # de_novo_list = []
             # control_list = []
             if len(y_test)>1:
@@ -92,25 +94,37 @@ def load_proof(ExpID, total_epochs=250,
                 # check in which group forbword of segment is
                 if patient_ID[n] in list(de_novo_dic.keys()):
                     # de_novo_list.append(y_p_U[n])
+                    de_novo_dic_test[patient_ID[n]].append(y_t_U[n])
                     de_novo_dic[patient_ID[n]].append(y_p_U[n])
                 else:
+                    control_dic_test[patient_ID[n]].append(y_t_U[n])
                     control_dic[patient_ID[n]].append(y_p_U[n])
             # calculate mean forbword for each patient
             for key in list(de_novo_dic.keys()):
+                de_novo_dic_test[key] = np.mean(de_novo_dic_test[key])
                 de_novo_dic[key] = np.mean(de_novo_dic[key])
             for key in list(control_dic.keys()):
+                control_dic_test[key] = np.mean(control_dic_test[key])
                 control_dic[key] = np.mean(control_dic[key])
-            print(list(de_novo_dic.values()))
-            print(list(control_dic.values()))
+            # print(list(de_novo_dic.values()))
+            # print(list(control_dic.values()))
+
             U1, p = mannwhitneyu(list(de_novo_dic.values()), list(control_dic.values()))
             U2 = len(list(de_novo_dic.values())) * len(list(control_dic.values())) - U1
+            U1_test, p = mannwhitneyu(list(de_novo_dic_test.values()), list(control_dic_test.values()))
+            U2_test = len(list(de_novo_dic_test.values())) * len(list(control_dic_test.values())) - U1_test
+
             print("Statistics of M-U-Test ", U1, " + ", U2)
             if min(U1, U2) <= 23:
+                M_U_check_test = True
                 M_U_check = True # Nullhypothese ablehnen. beide Verteilungen sind unterschiedlich
             else:
+                M_U_check_test = False
                 M_U_check = False
             mlflow.log_param("Statistics of M-U-Test", U1)
             mlflow.log_param("M-U-Test", M_U_check)
+            mlflow.log_param("Statistics of M-U-Test of Truth", U1)
+            mlflow.log_param("M-U-Test of Truth", M_U_check)
             
             
             if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja

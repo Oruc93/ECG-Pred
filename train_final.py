@@ -61,8 +61,8 @@ def train(total_epochs=250,
         
         # different datasets for training and test
         if dataset == "SYNECG": # synthetic ECG from Fabians Bachelor thesis
-            data, samplerate = tl.memorize("./data/training.h5", data_list)    
-            data_test, samplerate = tl.memorize("./data/test.h5", data_list)
+            data, samplerate = tl.memorize("../../data/training.h5", data_list)    
+            data_test, samplerate = tl.memorize("../../data/test.h5", data_list)
         elif dataset == "MIT-BIH": # did not work with LSTM. Never tested with attention
             data, samplerate = tl.memorize_MIT_data(data_list, 'training')
             data_test, samplerate = tl.memorize_MIT_data(data_list, 'test')
