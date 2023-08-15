@@ -87,10 +87,10 @@ def memorize(filename, dataset):
     except:
         print("Current directory:", dname)
         dir_list=[]
-        dir_list.append(["../../data/" + name for name in os.listdir("./data") if "h5" in name]) # listet alle h5 Dateien im data Ordner
-        dir_list.append(["../../data/" + name for name in os.listdir("./data") if "hdf5" in name])
-        dir_list.append(["../../data/" + name for name in os.listdir() if "h5" in name]) # listet alle h5 Dateien im aktuellen Ordner
-        dir_list.append(["../../data/" + name for name in os.listdir() if "hdf5" in name])
+        dir_list.append(["/mnt/scratchpad/dataOruc/data/" + name for name in os.listdir("./data") if "h5" in name]) # listet alle h5 Dateien im data Ordner
+        dir_list.append(["/mnt/scratchpad/dataOruc/data/" + name for name in os.listdir("./data") if "hdf5" in name])
+        dir_list.append(["/mnt/scratchpad/dataOruc/data/" + name for name in os.listdir() if "h5" in name]) # listet alle h5 Dateien im aktuellen Ordner
+        dir_list.append(["/mnt/scratchpad/dataOruc/data/" + name for name in os.listdir() if "hdf5" in name])
         raise FileNotFoundError("H5-file not found in current directory. Choose one of the files below: {dir_list}")
     
     data = {} # dictionary containing data
@@ -138,7 +138,7 @@ def memorize_MIT_data(data_list: list, T_or_T: str):
     """
     global samplerate
     samplerate = 256
-    data, peaks, BBI = Mrd.load_data("../../data/MIT/mitdb", samplerate, T_or_T)# , length_item/1024)
+    data, peaks, BBI = Mrd.load_data("/mnt/scratchpad/dataOruc/data/MIT/mitdb", samplerate, T_or_T)# , length_item/1024)
     print(np.shape(data))
     plt.figure(1)
     plt.plot(np.linspace(0, len(data[0,0:2000]), num=len(data[0,0:2000])), data[0,0:2000])
@@ -176,7 +176,7 @@ def Icentia_memorize(amount, length_item, data_list):
     abspath = os.path.abspath(__file__)
     dname = os.path.dirname(abspath)
     os.chdir(dname)
-    local_path = os.getcwd() + '../../data/Icentia11k/'
+    local_path = os.getcwd() + '/mnt/scratchpad/dataOruc/data/Icentia11k/'
     
     # for n in range(5):
     #     list_training, list_test = Ird.download(amount) # download files of ecgs and annotations
@@ -238,7 +238,7 @@ def CVP_memorize(data_list):
     samplerate = 256 # RX und CVD datenset 
     
     # load training examples into array
-    local_path = os.getcwd() + '../../data/CVP-dataset/dataset/*.npy'
+    local_path = os.getcwd() + '/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/*.npy'
     file_dir = glob.glob(local_path)
     # print(file_dir)
     data_ = []
@@ -248,7 +248,7 @@ def CVP_memorize(data_list):
     print("Training example array", np.shape(data_training))
     
     # load test examples into array
-    local_path = os.getcwd() + '../../data/CVP-dataset/dataset/evaluation/*.npy'
+    local_path = os.getcwd() + '/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/evaluation/*.npy'
     file_dir = glob.glob(local_path)
     # print(file_dir)
     data_ = []
@@ -1646,9 +1646,9 @@ def save_XY(X,y):
     """Saves X and y rowwise in npy files
     is needed in generator to save Cache space in GPU"""
     for ID in range(len(X[:,0])): # loop over all examples
-        np.save('../../data/generator/X-'+ str(ID) + ".npy", X[ID])
-        np.save('../../data/generator/y_ecg-'+ str(ID) + ".npy", y[0][ID])
-        np.save('../../data/generator/y_bbi-'+ str(ID) + ".npy", y[1][ID])
+        np.save('/mnt/scratchpad/dataOruc/data/generator/X-'+ str(ID) + ".npy", X[ID])
+        np.save('/mnt/scratchpad/dataOruc/data/generator/y_ecg-'+ str(ID) + ".npy", y[0][ID])
+        np.save('/mnt/scratchpad/dataOruc/data/generator/y_bbi-'+ str(ID) + ".npy", y[1][ID])
     
 def calc_symboldynamics(BBI): #beat_to_beat_intervals, a, mode
     """ Function to determine symbols and words for dynamics of beat-to-beat-intervals

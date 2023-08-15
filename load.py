@@ -45,7 +45,7 @@ def load_proof(ExpID, total_epochs=250,
         run_name = runs["tags.mlflow.runName"][n]
         OUTPUT_name = eval(runs["params.Output features"][n])
         # print(runID)
-        print("Evaluating model ", run_name, " on study data")
+        print("Evaluating model ", run_name, " on study data in Exp ", ExpID)
         # print(OUTPUT_name)
         out_types = DGl.output_type(OUTPUT_name)
         print(out_types)
@@ -87,8 +87,10 @@ def load_proof(ExpID, total_epochs=250,
                 y_t_U = (y_test[k][:]-0.1)*40
                 y_p_U = (y_pred[k][:]-0.1)*40
             else:
-                y_t_U = (y_test[0]-0.1)*40
-                y_p_U = (y_pred[0]-0.1)*40
+                y_t_U = (y_test-0.1)*40
+                print(len(y_t_U))
+                y_p_U = (y_pred-0.1)*40
+                print(len(y_p_U))
             # Collect data by tying patient_ID to forbword
             for n in range(len(patient_ID)):
                 # check in which group forbword of segment is
@@ -337,7 +339,7 @@ def load_test(ExpID, total_epochs=250,
         run_name = runs["tags.mlflow.runName"][n]
         OUTPUT_name = eval(runs["params.Output features"][n])
         # print(runID)
-        print("Evaluating model ", run_name, " on study data")
+        print("Evaluating model ", run_name, " on test data in Exp ", exper)
         # print(OUTPUT_name)
         out_types = DGl.output_type(OUTPUT_name)
         print(out_types)

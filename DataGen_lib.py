@@ -28,11 +28,11 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
     data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
     data_list = tl.unique(data_list)
     # Load config
-    with open('../../data/CVP-dataset/dataset/CONFIG', 'rb') as fp:
+    with open('/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/CONFIG', 'rb') as fp:
         config = json.load(fp)
-    with open('../../data/current-set/CONFIG', 'w') as file:
+    with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'w') as file:
         file.write(json.dumps(config))
-    # with open('../../data/CVP-dataset/dataset/CONFIG', 'r') as file:
+    # with open('/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/CONFIG', 'r') as file:
     #     str_config = file.read()
     #     str_config = str_config.replace("true", "True") # Fixing boolean value
     #     str_config = str_config.replace("false", "False") # Fixing boolean value
@@ -42,12 +42,12 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                       "IH": 250}
     global samplerate, chunk_path, new_chunk_path, segment_count
     samplerate = dic_samplerate[config["study_id"]]
-    chunk_path = {"Training":'../../data/CVP-dataset/dataset/', 
-                  "Test":'../../data/CVP-dataset/dataset/evaluation/',
-                  "Proof":'../../data/CVP-dataset/dataset/proof/'}
-    new_chunk_path = {"Training":'../../data/current-set/', 
-                     "Test":'../../data/current-set/evaluation/',
-                     "Proof":'../../data/current-set/proof/'}
+    chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/', 
+                  "Test":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/evaluation/',
+                  "Proof":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/proof/'}
+    new_chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
+                     "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
+                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
     segment_count = {"Training":int(config["segment_count"] * 0.8), 
                      "Test":int(config["segment_count"] * 0.2),
                      "Proof":int(21899//chunk_size*chunk_size)} # number of segments in full chunks
@@ -105,7 +105,7 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                     OUTPUT_name))
             print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             tic = time.time()
-        with open('../../data/current-set/OUTPUT_TYPE', 'w') as file:
+        with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'w') as file:
             file.write(json.dumps(output_type(OUTPUT_name)))
         
 def load(seg_n):
@@ -501,9 +501,9 @@ def load_chunk_to_variable(ToT, out_types):
         y (list containing np.arrays): Output data. Contains feature which are to predicted by NN
         patient_ID (np.array): one-dimensional. patient_IDs of examples
     """
-    with open('../../data/current-set/CONFIG', 'rb') as fp:
+    with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
         config = json.load(fp)
-    with open('../../data/current-set/OUTPUT_TYPE', 'rb') as file:
+    with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'rb') as file:
         output_type_chunks = json.load(file)
         # print(output_type_chunks)
         out_dic = {}
@@ -512,9 +512,9 @@ def load_chunk_to_variable(ToT, out_types):
         print("data structure of chunks", out_dic)
     # length_item = int(config["segment_length"]) # length of ecg inputs in s
     # indexes = np.arange(int(config["segment_count"]))
-    chunk_path_ = {"Training":'../../data/current-set/', 
-                     "Test":'../../data/current-set/evaluation/',
-                     "Proof":'../../data/current-set/proof/'}
+    chunk_path_ = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
+                     "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
+                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
     chunk_path = chunk_path_[ToT]
     chunk_list = [f for f in os.listdir(chunk_path) if (os.path.isfile(os.path.join(chunk_path, f)) and not("patient_id" in f))]
     chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
@@ -589,7 +589,7 @@ class DataGenerator(K.utils.Sequence):
         self.OUTPUT_name = OUTPUT_name
         self.data_list = tl.unique(list(OUTPUT_name.keys()) + list(INPUT_name.keys())) # list of mentioned features
         self.out_types = output_type(OUTPUT_name)
-        with open('../../data/current-set/OUTPUT_TYPE', 'rb') as file:
+        with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'rb') as file:
             self.output_type_chunks = json.load(file)
         self.batch_size = batch_size
         self.chunk_size = chunk_size # size of chunks containing preprocessed data
@@ -601,14 +601,14 @@ class DataGenerator(K.utils.Sequence):
         # self.data_X = X
         # self.data_y = y
         "Loading CONFIG-file"
-        with open('../../data/current-set/CONFIG', 'rb') as fp:
+        with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
             self.config = json.load(fp)
         self.length_item = int(self.config["segment_length"]) # length of ecg inputs in s
         # self.indexes = np.arange(int(self.config["segment_count"]))
         self.ToT = ToT
-        chunk_path_ = {"Training":'../../data/current-set/', 
-                        "Test":'../../data/current-set/evaluation/',
-                        "Proof":'../../data/current-set/proof/'}
+        chunk_path_ = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
+                        "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
+                        "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
         self.chunk_path = chunk_path_[ToT]
         chunk_list = [f for f in os.listdir(self.chunk_path) if (os.path.isfile(os.path.join(self.chunk_path, f)) and not("patient_id" in f))]
         chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks

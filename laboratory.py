@@ -66,7 +66,7 @@ Out_list = [{'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'P
 experiment = mlflow.set_experiment("Experiment 1 - Pseudo-Tasks - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
-load_test(experiment.experiment_id)
+# load_test(experiment.experiment_id)
 load_proof(experiment.experiment_id)
 
 # for Out in Out_list[1:]:
