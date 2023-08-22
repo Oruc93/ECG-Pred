@@ -25,7 +25,8 @@ import DataGen_lib as DGl
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
-          NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P", dataset="SYNECG", weight_check=False):
+          NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P", dataset="SYNECG", weight_check=False, kernel_size=2,
+          weight_decay=False, batch_size=10):
     """
     Setting up, training and evaluating one neural network with specific configuration
     During this process different metrics are logged in MLFlow and can be accessed by MLFlow UI in the browser
@@ -53,6 +54,8 @@ def train(total_epochs=250,
         mlflow.log_param("Output features", OUTPUT_name)  # Logs configuration of model features
         mlflow.log_param("size of NN", NNsize)
         mlflow.log_param("Weighted pseudo-Tasks", weight_check)
+        mlflow.log_param("kernel_size", kernel_size)
+        mlflow.log_param("batch_size", batch_size)
         
         print("\nMemorize data ...")
         
@@ -74,7 +77,7 @@ def train(total_epochs=250,
             length_item = 300 # CVP Datensatz fest gelegte Länge
             samplerate = 256
             # data, data_test, samplerate = tl.CVP_memorize(data_list)
-            amount = 170000 # np.shape(data[list(data.keys())[0]])[0] # amount of training examples
+            amount = int(150000*0.8) # np.shape(data[list(data.keys())[0]])[0] # amount of training examples
             mlflow.log_param("number of training examples", amount)
             # define outtypes
             # X_test, y_test, patient_ID = DGl.load_chunk_to_variable("Test")
@@ -114,6 +117,11 @@ def train(total_epochs=250,
         if Arch == "Conv_Att_E":
             model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E((length_item,1), NNsize, int(samplerate), out_types, weight_check=weight_check)  # Conv Att Encoder
             mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
+            mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
+            mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
+        if Arch == "Conv_Att_E_improved":
+            model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E_improved((length_item,1), kernel_size, int(samplerate), out_types, weight_check=weight_check)  # Conv Att Encoder
+            mlflow.log_param("Architecture", "Conv_Att_E_improved")  # logs type of architecture
             mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
             mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
         if Arch == "Conv-LSTM-E":
@@ -157,8 +165,12 @@ def train(total_epochs=250,
         
         # Compile model
         print("\nCompiling model...")
+        if weight_decay:
+            opt = tf.keras.optimizers.AdamW()
+        else:
+            opt = 'Adam'
         model.compile(loss= loss,
-                    optimizer='Adam',
+                    optimizer=opt,
                     metrics=metrics)
         
         # {
@@ -181,11 +193,11 @@ def train(total_epochs=250,
             print("\nTraining model...")
             model.fit(X,  # sequence we're using for prediction
                     y,  # sequence we're predicting
-                    batch_size= 8,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
+                    batch_size= batch_size,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                     # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                     epochs=total_epochs)
         else:
-            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=10, ToT="Training")
+            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="Training")
             model.fit(x=training_generator,
                         callbacks=[tf.keras.callbacks.TerminateOnNaN(), ca], # callback must be in list, otherwise mlflow.autolog() breaks
                         epochs=total_epochs

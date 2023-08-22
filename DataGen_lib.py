@@ -28,11 +28,11 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
     data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
     data_list = tl.unique(data_list)
     # Load config
-    with open('/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/CONFIG', 'rb') as fp:
+    with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'rb') as fp:
         config = json.load(fp)
     with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'w') as file:
         file.write(json.dumps(config))
-    # with open('/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/CONFIG', 'r') as file:
+    # with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'r') as file:
     #     str_config = file.read()
     #     str_config = str_config.replace("true", "True") # Fixing boolean value
     #     str_config = str_config.replace("false", "False") # Fixing boolean value
@@ -42,9 +42,9 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                       "IH": 250}
     global samplerate, chunk_path, new_chunk_path, segment_count
     samplerate = dic_samplerate[config["study_id"]]
-    chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/', 
-                  "Test":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/evaluation/',
-                  "Proof":'/mnt/scratchpad/dataOruc/data/CVP-dataset/dataset/proof/'}
+    chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/RX/2/', 
+                  "Test":'/mnt/scratchpad/dataOruc/data/RX/2/evaluation/',
+                  "Proof":'/mnt/scratchpad/dataOruc/data/RX/2/proof/'}
     new_chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
                      "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
                      "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
@@ -99,15 +99,114 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
         for n in range(np.shape(seg_chunk)[0]):
             load((seg_chunk[n,:,:], 
                     n, 
-                    ToT, 
+                    chunk_path[ToT], 
                     chunk_size,
                     INPUT_name,
-                    OUTPUT_name))
+                    OUTPUT_name,
+                    new_chunk_path))
             print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             tic = time.time()
         with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'w') as file:
             file.write(json.dumps(output_type(OUTPUT_name)))
-        
+            
+def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
+    """function for preprocessing huge dataset
+    it prepares features of ecg
+    forms them in new chunks and saves them as npy-files or json-files
+
+    This version prepares dataset for pretraining
+    
+    ToT_check = desired set in string Training, Test or Proof. Input None for all three options
+    
+    Returns:
+        chunk_size(int): number of samples in new chunks containing processed data
+    """
+    study_id = ["CVD", # ["RX"]
+                 "IH"]
+
+    channel = [1,2,3]
+
+    segment_count={ "RX": [170000, 170000, 170000],
+                    "CVD": [4400, 4400, 4400],
+                    "IH": [70000, 78000, 85000]}
+    
+    dic_samplerate = {"RX": 256, # dictionary with samplerates of studies
+                            "CVD": 256,
+                            "IH": 250}
+    
+    global data_list, config
+    data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
+    data_list = tl.unique(data_list)
+    # Load config
+    for study_ID in study_id:
+        for CHANNEL in channel: 
+            print("Studie: ", study_ID)
+            print("Channel: ", CHANNEL)
+            with open("/mnt/scratchpad/dataOruc/data/" + study_ID + "/" + str(CHANNEL) + '/CONFIG', 'rb') as fp:
+                config = json.load(fp)
+            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'w') as file:
+                file.write(json.dumps(config))
+            # with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'r') as file:
+            #     str_config = file.read()
+            #     str_config = str_config.replace("true", "True") # Fixing boolean value
+            #     str_config = str_config.replace("false", "False") # Fixing boolean value
+            #     exec("config=" + str_config)
+            
+            global samplerate, chunk_path, new_chunk_path
+            samplerate = dic_samplerate[config["study_id"]]
+            chunk_path = '/mnt/scratchpad/dataOruc/data/'+ study_ID + "/" + str(CHANNEL) + '/'
+            new_chunk_path = '/mnt/scratchpad/dataOruc/data/pretraining-set/'
+
+            tic = time.time()
+            # loop training and test
+            
+            new_chunk_ID = 0 # ID for new chunks
+            
+            # Find first and last chunk of dataset
+            chunk_list = [f for f in os.listdir(chunk_path) if (os.path.isfile(os.path.join(chunk_path, f)) and not("patient_id" in f))]
+            chunk_list = [int(f[:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
+            chunk_list.sort()
+            chunk_start = min(chunk_list) # we save lowest as starting point
+            chunk_ID = chunk_start
+            chunk_end = max(chunk_list) # se save highest as ending point
+            
+            # create array of segment indices and containing chunk
+            print("Mapping Segment to containing chunk ...")
+            seg_chunk = np.zeros((segment_count[study_ID][CHANNEL],2), dtype=int)
+            # seg_chunk[:,0] = np.arange(segment_count[ToT], dtype=int)
+            segment_counter = 0
+            for n in chunk_list:
+                chunk = np.load(chunk_path + str(n) + '.npy', allow_pickle=True)
+                seg_chunk[segment_counter:segment_counter + len(chunk[:,0]), 0] = np.arange(len(chunk[:,0]), dtype=int)
+                seg_chunk[segment_counter:segment_counter + len(chunk[:,0]), 1] = n
+                segment_counter += len(chunk[:,0])
+            seg_chunk = np.reshape(seg_chunk, (int(segment_count[study_ID][CHANNEL]/chunk_size),chunk_size,2))
+            # chunk_map = seg_chunk = np.zeros((int(segment_count[ToT]/chunk_size),chunk_size,2), dtype=int)
+            print(np.shape(seg_chunk))
+            
+            print("Preprocessing batches ...")
+            # print("number of CPUs ", mp.cpu_count())
+            # with mp.Pool(mp.cpu_count()) as pool:
+            #     results = pool.map(load, [(seg_chunk[n,:,:], 
+            #                                n, 
+            #                                ToT, 
+            #                                chunk_size,
+            #                                INPUT_name,
+            #                                OUTPUT_name) for n in range(np.shape(seg_chunk)[0])])
+            # print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
+            for n in range(np.shape(seg_chunk)[0]):
+                load((seg_chunk[n,:,:], 
+                        n, 
+                        chunk_path, 
+                        chunk_size,
+                        INPUT_name,
+                        OUTPUT_name,
+                        new_chunk_path))
+                print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
+                tic = time.time()
+            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/OUTPUT_TYPE', 'w') as file:
+                file.write(json.dumps(output_type(OUTPUT_name)))
+            
 def load(seg_n):
     """loads batch, preprocess and saves in new chunk
 
@@ -116,15 +215,16 @@ def load(seg_n):
     """
     seg_chunk = seg_n[0]
     new_chunk_ID = seg_n[1]
-    ToT = seg_n[2]
+    chunk_path = seg_n[2]
     chunk_size = seg_n[3]
     INPUT_name = seg_n[4]
     OUTPUT_name = seg_n[5]
+    new_chunk_path = seg_n[6]
     # new chunk to contain processed and batched data
     dataset_chunk = pandas.DataFrame(columns=["ecg", "r_pos", "snr", "subject_id", "tacho"])
     # Load first chunk
     if len(np.unique(seg_chunk[:,1]))==1:
-        chunk = np.load(chunk_path[ToT] + str(seg_chunk[0,1]) + '.npy', allow_pickle=True)
+        chunk = np.load(chunk_path + str(seg_chunk[0,1]) + '.npy', allow_pickle=True)
         # print(seg_chunk)
         try:
             for row in range(len(seg_chunk[:,0])):
@@ -134,7 +234,7 @@ def load(seg_n):
             print(seg_chunk)
     elif len(np.unique(seg_chunk[:,1]))>1:
         for unique_chunk in np.unique(seg_chunk[:,1]):
-            chunk = np.load(chunk_path[ToT] + str(unique_chunk) + '.npy', allow_pickle=True)
+            chunk = np.load(chunk_path + str(unique_chunk) + '.npy', allow_pickle=True)
             try:
                 for row in range(len(seg_chunk[unique_chunk==seg_chunk[:,1],0])):
                     dataset_chunk.loc[len(dataset_chunk)] = chunk[row,:]
@@ -150,12 +250,12 @@ def load(seg_n):
     X, y_list, out_types = set_items(data_dic, INPUT_name, OUTPUT_name, config["segment_length"]*samplerate)
     print("Saving new chunk ", new_chunk_ID)
     # save preprocessed and batched input data in chunk as numpy array
-    np.save(new_chunk_path[ToT] + f"X-{new_chunk_ID}", X, allow_pickle=True)
+    np.save(new_chunk_path + f"X-{new_chunk_ID}", X, allow_pickle=True)
     # save preprocessed and batched output data in chunk as list
-    with open(new_chunk_path[ToT] + f"y-{new_chunk_ID}", 'wb') as fp:
+    with open(new_chunk_path + f"y-{new_chunk_ID}", 'wb') as fp:
         pickle.dump(y_list, fp)
     # save batched patient id in chunk as numpy array seperate from dataset
-    np.save(new_chunk_path[ToT] + f"patient_id-{new_chunk_ID}", data_dic['subject_id'], allow_pickle=True)
+    np.save(new_chunk_path + f"patient_id-{new_chunk_ID}", data_dic['subject_id'], allow_pickle=True)
     # print("Sekunden für ein Batch", np.round(time.time()-tic,3))
     print(new_chunk_ID)            
 

@@ -56,12 +56,15 @@ def load_proof(ExpID, total_epochs=250,
             
             samplerate = 256
             
-            # with tf.keras.utils.custom_object_scope(dic_loss):
-                # model = mlflow.keras.load_model("runs:/b7b93f47d96e47a6baaa6641db891495" + "/model")
-            model = tf.keras.models.load_model("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model", custom_objects=custom_loss)
-            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=10, ToT="Proof")
-            dic_eval = model.evaluate(x=training_generator, return_dict=True)
+            if os.path.exists("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model"):
+                model = tf.keras.models.load_model("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model", custom_objects=custom_loss)
+            else:
+                print("No model found in Run. Continue with next Run")
+                continue
+
+            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=16, ToT="Proof")
             y_pred = model.predict(x=training_generator)
+
             print("Load test chunks into variable...")
             X_test, y_test, patient_ID = DGl.load_chunk_to_variable("Proof", out_types)
             print("Number of segments: ", len(patient_ID))
@@ -87,10 +90,8 @@ def load_proof(ExpID, total_epochs=250,
                 y_t_U = (y_test[k][:]-0.1)*40
                 y_p_U = (y_pred[k][:]-0.1)*40
             else:
-                y_t_U = (y_test-0.1)*40
-                print(len(y_t_U))
+                y_t_U = (y_test[0]-0.1)*40
                 y_p_U = (y_pred-0.1)*40
-                print(len(y_p_U))
             # Collect data by tying patient_ID to forbword
             for n in range(len(patient_ID)):
                 # check in which group forbword of segment is
@@ -125,8 +126,8 @@ def load_proof(ExpID, total_epochs=250,
                 M_U_check = False
             mlflow.log_param("Statistics of M-U-Test", U1)
             mlflow.log_param("M-U-Test", M_U_check)
-            mlflow.log_param("Statistics of M-U-Test of Truth", U1)
-            mlflow.log_param("M-U-Test of Truth", M_U_check)
+            mlflow.log_param("Statistics of M-U-Test of Truth", U1_test)
+            mlflow.log_param("M-U-Test of Truth", M_U_check_test)
             
             
             if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
@@ -339,7 +340,7 @@ def load_test(ExpID, total_epochs=250,
         run_name = runs["tags.mlflow.runName"][n]
         OUTPUT_name = eval(runs["params.Output features"][n])
         # print(runID)
-        print("Evaluating model ", run_name, " on test data in Exp ", exper)
+        print("Evaluating model ", run_name, " on test data in Exp ", ExpID)
         # print(OUTPUT_name)
         out_types = DGl.output_type(OUTPUT_name)
         print(out_types)
@@ -349,14 +350,15 @@ def load_test(ExpID, total_epochs=250,
         with mlflow.start_run(runID):  # separate run for each NN size and configuration
             
             samplerate = 256
-            
-            # with tf.keras.utils.custom_object_scope(dic_loss):
-                # model = mlflow.keras.load_model("runs:/b7b93f47d96e47a6baaa6641db891495" + "/model")
-            model = tf.keras.models.load_model("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model", custom_objects=custom_loss)
+            if os.path.exists("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model"):
+                model = tf.keras.models.load_model("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model", custom_objects=custom_loss)
+            else:
+                print("No model found in Run. Continue with next Run")
+                continue
     
             # Evaluate trained model
             print("\nEvaluating model...")
-            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=10, ToT="Test")
+            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=16, ToT="Test")
             dic_eval = model.evaluate(x=training_generator, return_dict=True)
             print("Test results: ", dic_eval)
             for n in range(len(dic_eval)):
@@ -450,8 +452,8 @@ def load_test(ExpID, total_epochs=250,
                         break
                     if a == 100:
                         print("Could not find image name. Raise limit of rand.int above")
-                    plt.savefig(path_fig)  # saves plot
-                    mlflow.log_artifact(path_fig)  # links plot to MLFlow run
+                    # plt.savefig(path_fig)  # saves plot
+                    # mlflow.log_artifact(path_fig)  # links plot to MLFlow run
                 plt.close()
                 
             # Plot multiple examples
