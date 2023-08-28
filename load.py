@@ -68,6 +68,7 @@ def load_proof(ExpID, total_epochs=250,
             print("Load test chunks into variable...")
             X_test, y_test, patient_ID = DGl.load_chunk_to_variable("Proof", out_types)
             print("Number of segments: ", len(patient_ID))
+            
             # data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
             # data_list = tl.unique(data_list)
             # data_dic = DGl.feat_to_dic(data, data_list)
@@ -367,7 +368,7 @@ def load_test(ExpID, total_epochs=250,
                     mlflow.log_param("MAPE forbword Test", dic_eval[list(dic_eval)[n]])
             
             # Predict on test set and plot
-            if dataset != "CVP":
+            if not(dataset in ["CVP", "pretraining"]):
                 y_pred = model.predict(X_test, batch_size=16)# int(np.shape(X_test)[0] / 3))
             else:
                 y_pred = model.predict(x=training_generator)

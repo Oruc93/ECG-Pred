@@ -22,11 +22,13 @@ import sys
 from keras.callbacks import EarlyStopping
 import tensorflow as tf
 import DataGen_lib as DGl
+import json
+import keras
 
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
           NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P", dataset="SYNECG", weight_check=False, kernel_size=2,
-          weight_decay=False, batch_size=10):
+          weight_decay=False, batch_size=10, weight_SymbolC=False):
     """
     Setting up, training and evaluating one neural network with specific configuration
     During this process different metrics are logged in MLFlow and can be accessed by MLFlow UI in the browser
@@ -77,10 +79,18 @@ def train(total_epochs=250,
             length_item = 300 # CVP Datensatz fest gelegte Länge
             samplerate = 256
             # data, data_test, samplerate = tl.CVP_memorize(data_list)
-            amount = int(150000*0.8) # np.shape(data[list(data.keys())[0]])[0] # amount of training examples
+            with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
+                config = json.load(fp)
+            amount = int(config["segment_count"]*0.8) # int(150000*0.8) # np.shape(data[list(data.keys())[0]])[0] # amount of training examples
             mlflow.log_param("number of training examples", amount)
             # define outtypes
             # X_test, y_test, patient_ID = DGl.load_chunk_to_variable("Test")
+            out_types = DGl.output_type(OUTPUT_name)
+        elif dataset == "pretraining":
+            length_item = 300 # CVP Datensatz fest gelegte Länge
+            samplerate = 256
+            amount = 4400 + 4400 + 4400 + 70000 + 78000 + 85000
+            mlflow.log_param("number of training examples", amount)
             out_types = DGl.output_type(OUTPUT_name)
         else:
             sys.exit("dataset not known")
@@ -90,7 +100,7 @@ def train(total_epochs=250,
         length_item = int(length_item*samplerate) # from seconds to samples
         mlflow.log_param("samplerate", samplerate) # samplerate in Hz
         
-        if dataset != "CVP":
+        if not(dataset in ["CVP", "pretraining"]):
             print("\nConstructing training data ...")
             # Extracting items from training data
             X, y, out_types= tl.set_items(data, INPUT_name, OUTPUT_name, length_item)
@@ -143,10 +153,16 @@ def train(total_epochs=250,
         # exit()
         # Selecting loss and metric functions
         alpha = tf.Variable(1)
+        
+        if weight_SymbolC:
+            loss_SymbolC = ["Symbols_output", tl.symbols_loss_uniform_weighted, 'sparse_categorical_accuracy']
+        else:
+            loss_SymbolC = ["Symbols_output", tl.symbols_loss_uniform, 'sparse_categorical_accuracy']
+        
         dic_loss = {
                     "ECG":                  ["ECG_output", tl.pseudo_loss, 'MAE'],
                     "Tacho":                ["Tacho_output", tl.pseudo_loss, 'MAE'],
-                    "symbolsC":             ["Symbols_output", tl.symbols_loss_uniform, 'sparse_categorical_accuracy'],
+                    "symbolsC":             loss_SymbolC,
                     "Shannon":              ["Shannon_output", tl.pseudo_loss, 'mean_absolute_percentage_error'], 
                     "Polvar10":             ["Polvar10_output", tl.pseudo_loss, 'mean_absolute_percentage_error'], 
                     "forbword":             ["forbword_output", tl.task_loss, 'mean_absolute_percentage_error'],
@@ -166,7 +182,7 @@ def train(total_epochs=250,
         # Compile model
         print("\nCompiling model...")
         if weight_decay:
-            opt = tf.keras.optimizers.AdamW()
+            opt = keras.optimizers.AdamW()
         else:
             opt = 'Adam'
         model.compile(loss= loss,
@@ -189,15 +205,21 @@ def train(total_epochs=250,
         ca = tl.changeAlpha(alpha=alpha)
         
         # Train model on training set
-        if dataset != "CVP":
+        if not(dataset in ["CVP", "pretraining"]):
             print("\nTraining model...")
             model.fit(X,  # sequence we're using for prediction
                     y,  # sequence we're predicting
                     batch_size= batch_size,# int(np.shape(X)[0] / 2**3), # how many samples to pass to our model at a time
                     # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                     epochs=total_epochs)
-        else:
+        elif dataset == "CVP":
             training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="Training")
+            model.fit(x=training_generator,
+                        callbacks=[tf.keras.callbacks.TerminateOnNaN(), ca], # callback must be in list, otherwise mlflow.autolog() breaks
+                        epochs=total_epochs
+                        )
+        else:
+            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="pretraining")
             model.fit(x=training_generator,
                         callbacks=[tf.keras.callbacks.TerminateOnNaN(), ca], # callback must be in list, otherwise mlflow.autolog() breaks
                         epochs=total_epochs

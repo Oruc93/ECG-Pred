@@ -153,31 +153,31 @@ Out_list_ = [{'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], '
             # {'SNR': ["lag 0"], 'forbword': ["lag 0"]}
             ]
 
-experiment = mlflow.set_experiment("Experiment 5 - Improved Architecture Encoder - 80:20:dNC") # Conv-AE-LSTM-P good
-print("Experiment_id: {}".format(experiment.experiment_id))
+# experiment = mlflow.set_experiment("Experiment 5 - Improved Architecture Encoder - 80:20:dNC") # Conv-AE-LSTM-P good
+# print("Experiment_id: {}".format(experiment.experiment_id))
 
-# for kernel_size in [0.1, 0.25, 1, 2]:
-#       for Out in Out_list_:
-#            print(Out)
-#            print(kernel_size)
-# train(NNsize=int(2**4), 
-# total_epochs=5, 
-# length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
-# # INPUT_name = {"symbols": ["lag 0"]},
-# OUTPUT_name = {'forbword': ["lag 0"]}, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
-# Arch = "Conv_Att_E_improved",
-# dataset="CVP",
-# kernel_size=0.25) # "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
+"""for kernel_size in [0.1, 0.25]:
+      for Out in Out_list_:
+            print(Out)
+            print(kernel_size)
+            train(NNsize=int(2**4), 
+            total_epochs=5, 
+            length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+            # INPUT_name = {"symbols": ["lag 0"]},
+            OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+            Arch = "Conv_Att_E_improved",
+            dataset="CVP",
+            kernel_size=kernel_size) # "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")# 
 
 load_test(experiment.experiment_id)
-load_proof(experiment.experiment_id)
+load_proof(experiment.experiment_id)"""
 
 #######################################################################################################
 
 # Sixth Experiment Adam with weight decay
 # Set experiment active or create new one
 
-experiment = mlflow.set_experiment("Experiment 6 - AdamW - 80:20:dNC") # Conv-AE-LSTM-P good
+"""experiment = mlflow.set_experiment("Experiment 6 - AdamW - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 for Out in Out_list_:
@@ -193,14 +193,37 @@ for Out in Out_list_:
       weight_decay=True)
 
 load_test(experiment.experiment_id)
-load_proof(experiment.experiment_id)
+load_proof(experiment.experiment_id)"""
 
 #################################################################################################
 # Seventh Experiment Channel 2
 # preprocess is ready
-DGl.preprocess(None)
+# DGl.preprocess("Proof")
 
 experiment = mlflow.set_experiment("Experiment 7 - Channel 2 - 80:20:dNC") 
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+# for Out in Out_list_:
+#       print(Out)
+#       train(NNsize=int(2**4), 
+#       total_epochs=5, 
+#       length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
+#       # INPUT_name = {"symbols": ["lag 0"]},
+#       OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
+#       Arch = "Conv_Att_E_improved",
+#       dataset="CVP",
+#       kernel_size=0.25,
+#       weight_decay=True,
+#       batch_size=10)
+
+# load_test(experiment.experiment_id)
+load_proof(experiment.experiment_id)
+
+#################################################################################################
+# Eightth Experiment Weighted SymbolC
+# Loss of SymbolC ~0.7 and rest ~0.007
+
+experiment = mlflow.set_experiment("Experiment 8 - Weighted SymbolC - 80:20:dNC") 
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 for Out in Out_list_:
@@ -214,7 +237,8 @@ for Out in Out_list_:
       dataset="CVP",
       kernel_size=0.25,
       weight_decay=True,
-      batch_size=10)
+      batch_size=10,
+      weight_SymbolC=True)
 
 load_test(experiment.experiment_id)
 load_proof(experiment.experiment_id)
@@ -225,22 +249,24 @@ exit()
 # Datenset ist ready
 # Preprocessing anpassen
 # Ready für test. Implement deleting source chunks. Sonst wird viel platz gefressen
+# nocht nicht ready
+# IH Daten Resamplen auf 256 Hz
 DGl.pretraining_preprocess() # prepares data for generator. Only use if new dataset is used
 # Eight Experiment Pretraining
 experiment = mlflow.set_experiment("Experiment 8 - Pretrained Network - 80:20:dNC") # Conv-AE-LSTM-P good
 print("Experiment_id: {}".format(experiment.experiment_id))
 
 # nicht ready
-for Out in Out_list:
+for Out in Out_list_:
       if 'forbword' in list(Out.keys()):
             print(Out)
             train(NNsize=int(2**4), 
-                  total_epochs=10, 
+                  total_epochs=5, 
                   length_item= 300,# 256 2**6, # Minimum 4 seconds. Because calc_symbols needs at leat 2 beats. in seconds
                   # INPUT_name = {"symbols": ["lag 0"]},
                   OUTPUT_name = Out, # 'parametersTacho': ["lag 0"]},# 'symbolsC': ["lag 0"], "words": ["lag 0"]}, "ECG": ["lag 0"], 'Tacho': ["lag 0"]
-                  Arch = "Conv_Att_E_no_branches",
-                  dataset="CVP",
+                  Arch = "Conv_Att_E_improved",
+                  dataset="pretraining",
                   weight_check=True)# "Conv_E_LSTM_Att_P") #"Conv-AE-LSTM-P")# "maxKomp-Conv-AE-LSTM-P")
             
 load_test(experiment.experiment_id)

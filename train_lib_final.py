@@ -1262,7 +1262,7 @@ def setup_Conv_Att_E_improved(input_shape, kernel_size, samplerate, out_types, w
     encoder = Conv1D(amount_filter, # number of columns in output. filters
                      int(samplerate*kernel_size), # kernel size. We look at 2s snippets
                      padding = "same", # only applies kernel if it fits on input. No Padding
-                     dilation_rate=2, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen
+                     dilation_rate=1, # Kernel mit regelmäßigen Lücken. Bsp. jeder zweite Punkt wird genommen. Testweise auf 1 gesetzt, ursprünglich 2
                      activation = "relu"
                      )(Input_encoder)  # downgrade numpy to v1.19.2 if Tensor / NumpyArray error here
     encoder = AveragePooling1D(ds_step)(encoder)
@@ -1564,7 +1564,7 @@ def setup_Conv_Att_E_no_branches(input_shape, size, samplerate, out_types, weigh
     length = int(length)
     amount_filter = int(amount_filter)
     
-    core = attention_lib.myAttention(num_layers=1, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
+    core = attention_lib.myAttention(num_layers=4, d_model=amount_filter, length=length, num_heads=10, dff=length)(encoder, w_2=0)
     
     for depth in range(3):
         core = Dense(amount_filter, activation='relu')(core)
@@ -1774,6 +1774,26 @@ def symbols_loss_uniform(y_true, y_pred):
             return scce(y_true, y_pred)
     else:
         return scce(y_true, y_pred)
+
+def symbols_loss_uniform_weighted(y_true, y_pred):
+    """Custom LOSS function für symbol classification
+    
+    Here we use Sparse Crossentropy for every time step seperately and sum them up
+    For higher efficiency we dont weight rare classes
+    The function returns loss. SparseCategoricalCrossentropy
+    """
+    scce = K.losses.SparseCategoricalCrossentropy(from_logits=False) # function for LOSS of choice
+    y_true = y_true[:,:, tf.newaxis]
+    # print("y_true", y_true)
+    # print("y_pred", y_pred)
+    # print(scce(y_true, y_pred))
+    if 'check_weight' in globals():
+        if check_weight == True:
+            return 1/(tf.cast(changeAlpha.alpha, scce(y_true, y_pred).dtype) +1) * scce(y_true, y_pred)/100
+        else:
+            return scce(y_true, y_pred)/100
+    else:
+        return scce(y_true, y_pred)/100
 
 def extract_number(string:str):
     """ Extracts numeric elements from string as integer

@@ -8,6 +8,7 @@ import json
 import matplotlib.pyplot as plt
 import matlab.engine
 import time
+import shutil
 # import multiprocessing as mp
 
 def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
@@ -50,13 +51,22 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                      "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
     segment_count = {"Training":int(config["segment_count"] * 0.8), 
                      "Test":int(config["segment_count"] * 0.2),
-                     "Proof":int(21899//chunk_size*chunk_size)} # number of segments in full chunks
+                     "Proof":int(22000//chunk_size*chunk_size)} # number of segments in full chunks
     tic = time.time()
     # loop training and test
     for ToT in ["Training", "Test", "Proof"]:
         if ToT_check != None:
             if ToT_check != ToT:
-                break
+                print("next dataset")
+                continue
+         # checking if the directory new_chunk_path exist or not.
+        if not os.path.exists(new_chunk_path[ToT]):
+            # if directory is not present then create it.
+            os.makedirs(new_chunk_path[ToT])
+        else:
+            # if dataset exists, we delete the dataset and recreate it
+            shutil.rmtree(new_chunk_path[ToT])
+            os.makedirs(new_chunk_path[ToT])
         print("Preprocessing chunks of ",ToT)
         new_chunk_ID = 0 # ID for new chunks
         
@@ -67,11 +77,11 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
         chunk_start = min(chunk_list) # we save lowest as starting point
         chunk_ID = chunk_start
         chunk_end = max(chunk_list) # se save highest as ending point
-        if ToT == "Proof":
-            print(len(chunk_list))
-            chunk_list = chunk_list[:-1]
-            print(len(chunk_list))
-        
+        # if ToT == "Proof":
+        #     print(len(chunk_list))
+        #     chunk_list = chunk_list[:-1]
+        #     print(len(chunk_list))
+        print("List of chunks ", chunk_list)
         # create array of segment indices and containing chunk
         print("Mapping Segment to containing chunk ...")
         seg_chunk = np.zeros((segment_count[ToT],2), dtype=int)
@@ -79,6 +89,11 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
         segment_counter = 0
         for n in chunk_list:
             chunk = np.load(chunk_path[ToT] + str(n) + '.npy', allow_pickle=True)
+            print(len(chunk[:,0]))
+            if len(chunk[:,0]) < 400:
+                print("chunk ", n, " is not 400")
+                continue
+            print("Chunk number ", n, " being mapped")
             seg_chunk[segment_counter:segment_counter + len(chunk[:,0]), 0] = np.arange(len(chunk[:,0]), dtype=int)
             seg_chunk[segment_counter:segment_counter + len(chunk[:,0]), 1] = n
             segment_counter += len(chunk[:,0])
@@ -103,7 +118,7 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                     chunk_size,
                     INPUT_name,
                     OUTPUT_name,
-                    new_chunk_path))
+                    new_chunk_path[ToT]))
             print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             tic = time.time()
         with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'w') as file:
@@ -126,13 +141,11 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
 
     channel = [1,2,3]
 
-    segment_count={ "RX": [170000, 170000, 170000],
-                    "CVD": [4400, 4400, 4400],
-                    "IH": [70000, 78000, 85000]}
+    segment_count={"CVD": [4400, 4400, 4400],
+                   "IH": [70000, 78000, 85000]}
     
-    dic_samplerate = {"RX": 256, # dictionary with samplerates of studies
-                            "CVD": 256,
-                            "IH": 250}
+    dic_samplerate = {"CVD": 256,
+                      "IH": 250}
     
     global data_list, config
     data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
@@ -153,7 +166,7 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
             #     exec("config=" + str_config)
             
             global samplerate, chunk_path, new_chunk_path
-            samplerate = dic_samplerate[config["study_id"]]
+            samplerate = 256 # dic_samplerate[config["study_id"]]
             chunk_path = '/mnt/scratchpad/dataOruc/data/'+ study_ID + "/" + str(CHANNEL) + '/'
             new_chunk_path = '/mnt/scratchpad/dataOruc/data/pretraining-set/'
 
@@ -241,7 +254,17 @@ def load(seg_n):
             except:
                 print("inserting did not work")
                 print(seg_chunk)
-        
+    if 'IH' in chunk_path: # Please test this
+        print(dataset_chunk["ecg"])
+        print(np.shape(dataset_chunk["ecg"]))
+        for n in range(len(dataset_chunk["ecg"])):
+            x = np.arange(0, config["segment_length"], 1/256) # timesteps of 256Hz ECG
+            xp = np.arange(0, config["segment_length"], 1/250) # timesteps of 250Hz ECG
+            Hz256_ecg = np.interp(x, xp, dataset_chunk["ecg"][n,:])
+            print(Hz256_ecg)
+            print(np.shape(Hz256_ecg))
+            dataset_chunk["ecg"][n,:] = Hz256_ecg
+
     data = dataset_chunk.to_numpy()
     data_dic = feat_to_dic(data, data_list)
     # print(data_dic['subject_id'])
@@ -683,32 +706,37 @@ def load_chunk_to_variable(ToT, out_types):
 
 class DataGenerator(K.utils.Sequence):
     "Generates data for Keras of CVP dataset"
-    def __init__(self, chunk_size, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, batch_size=32, ToT="Training"): # , shuffle=False
+    def __init__(self, chunk_size, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, batch_size=32, ToT="Training", shuffle=False): # , shuffle=False
         "Initialization"
         self.INPUT_name = INPUT_name
         self.OUTPUT_name = OUTPUT_name
         self.data_list = tl.unique(list(OUTPUT_name.keys()) + list(INPUT_name.keys())) # list of mentioned features
         self.out_types = output_type(OUTPUT_name)
         with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'rb') as file:
-            self.output_type_chunks = json.load(file)
+            self.output_type_chunks = json.load(file) # contains index of output feature
         self.batch_size = batch_size
         self.chunk_size = chunk_size # size of chunks containing preprocessed data
         if chunk_size % batch_size != 0:
             print("Error: chunk ", chunk_size," and batch size ", batch_size," must have modulo 0")
             exit()
-        # self.shuffle = shuffle
+        self.shuffle = shuffle
         # self.list_IDs = list_IDs
         # self.data_X = X
         # self.data_y = y
-        "Loading CONFIG-file"
-        with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
-            self.config = json.load(fp)
+        # Loading CONFIG-file
+        if ToT == "pretraining":
+            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'rb') as fp:
+                self.config = json.load(fp)
+        else:
+            with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
+                self.config = json.load(fp)
         self.length_item = int(self.config["segment_length"]) # length of ecg inputs in s
         # self.indexes = np.arange(int(self.config["segment_count"]))
         self.ToT = ToT
-        chunk_path_ = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
-                        "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
-                        "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
+        chunk_path_ = {"pretraining": '/mnt/scratchpad/dataOruc/data/pretraining-set/',
+                       "Training": '/mnt/scratchpad/dataOruc/data/current-set/', 
+                       "Test": '/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
+                       "Proof": '/mnt/scratchpad/dataOruc/data/current-set/proof/'}
         self.chunk_path = chunk_path_[ToT]
         chunk_list = [f for f in os.listdir(self.chunk_path) if (os.path.isfile(os.path.join(self.chunk_path, f)) and not("patient_id" in f))]
         chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
@@ -716,23 +744,26 @@ class DataGenerator(K.utils.Sequence):
         self.chunk_ID = self.chunk_start
         self.chunk_end = max(chunk_list) # se save highest as ending point
         self.segment_ID = int(0)
+        # build sequence batch indices
+        self.len = {"pretraining": int(np.floor(self.config["segment_count"]/ self.batch_size)), 
+                     "Training": int(np.floor(self.config["segment_count"]*0.8/ self.batch_size)), 
+                     "Test": int(np.floor(self.config["segment_count"]*0.2/ self.batch_size)),
+                     "Proof": int(np.floor(22000/ self.batch_size))}
+        self.indexes = np.arange(self.len[self.ToT])
         
     def __len__(self):
         'Denotes the number of batches per epoch'
         # return int(np.floor(len(self.data_X[:,0]) / self.batch_size))
-        len_ = {"Training": int(np.floor(self.config["segment_count"]*0.8/ self.batch_size)), 
-                "Test": int(np.floor(self.config["segment_count"]*0.2/ self.batch_size)),
-                "Proof": int(np.floor(21600/ self.batch_size))}
-        return len_[self.ToT]
+        return self.len[self.ToT]
         # if self.ToT == "Training":
         #     return int(np.floor(self.config["segment_count"]*0.8/self.batch_size))
         # else:
         #     return int(np.floor(self.config["segment_count"]*0.2/self.batch_size))
     
-    def __getitem__(self, index):
+    def __getitem__(self, idx):
         'Generate one batch of data'
         # Generate indexes of the batch
-        # indexes = self.indexes[index*self.batch_size:(index+1)*self.batch_size]
+        index = self.indexes[idx]
 
         # Find list of IDs
         # list_IDs_temp = [self.list_IDs[k] for k in indexes]
@@ -747,8 +778,8 @@ class DataGenerator(K.utils.Sequence):
         # self.indexes = np.arange(int(self.config["segment_count"]))
         # self.segment_ID = int(0)
         # self.chunk_ID = 0
-        # if self.shuffle == True:
-        #     np.random.shuffle(self.indexes)
+        if self.shuffle == True:
+            np.random.shuffle(self.indexes)
     
     def __data_generation(self, index):
         """Loads batches from chunks
