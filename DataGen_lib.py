@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import matlab.engine
 import time
 import shutil
+import Icentia11k_reader as Ird
+import random
 # import multiprocessing as mp
 
 def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
@@ -22,17 +24,21 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
         chunk_size(int): number of samples in new chunks containing processed data
     """
     if ToT_check != None:
-        if not(ToT_check in ["Training", "Test", "Proof"]):
+        if not(ToT_check in ["Training", "Test", "Proof", "Channel 1"]):
             print("ToT_check named wrong: ", ToT_check)
             exit()
     global data_list, config
     data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
     data_list = tl.unique(data_list)
     # Load config
-    with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'rb') as fp:
-        config = json.load(fp)
-    with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'w') as file:
-        file.write(json.dumps(config))
+    if ToT_check != "Channel 1":
+        with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'rb') as fp:
+            config = json.load(fp)
+            with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'w') as file:
+                file.write(json.dumps(config))
+    else:
+        with open('/mnt/scratchpad/dataOruc/data/RX/1/CONFIG', 'rb') as fp:
+            config = json.load(fp)
     # with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'r') as file:
     #     str_config = file.read()
     #     str_config = str_config.replace("true", "True") # Fixing boolean value
@@ -45,16 +51,19 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
     samplerate = dic_samplerate[config["study_id"]]
     chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/RX/2/', 
                   "Test":'/mnt/scratchpad/dataOruc/data/RX/2/evaluation/',
-                  "Proof":'/mnt/scratchpad/dataOruc/data/RX/2/proof/'}
+                  "Proof":'/mnt/scratchpad/dataOruc/data/RX/2/proof/',
+                  "Channel 1":'/mnt/scratchpad/dataOruc/data/RX/1/'}
     new_chunk_path = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
                      "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
-                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
+                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/',
+                     "Channel 1":'/mnt/scratchpad/dataOruc/data/RX/processed/'}
     segment_count = {"Training":int(config["segment_count"] * 0.8), 
                      "Test":int(config["segment_count"] * 0.2),
-                     "Proof":int(22000//chunk_size*chunk_size)} # number of segments in full chunks
+                     "Proof":int(22000//chunk_size*chunk_size),
+                     "Channel 1":int(400)} # number of segments in full chunks
     tic = time.time()
     # loop training and test
-    for ToT in ["Training", "Test", "Proof"]:
+    for ToT in ["Training", "Test", "Proof", "Channel 1"]:
         if ToT_check != None:
             if ToT_check != ToT:
                 print("next dataset")
@@ -121,7 +130,7 @@ def preprocess(ToT_check, chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_n
                     new_chunk_path[ToT]))
             print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             tic = time.time()
-        with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'w') as file:
+        with open(new_chunk_path[ToT] + 'OUTPUT_TYPE', 'w') as file:
             file.write(json.dumps(output_type(OUTPUT_name)))
             
 def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
@@ -130,11 +139,6 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
     forms them in new chunks and saves them as npy-files or json-files
 
     This version prepares dataset for pretraining
-    
-    ToT_check = desired set in string Training, Test or Proof. Input None for all three options
-    
-    Returns:
-        chunk_size(int): number of samples in new chunks containing processed data
     """
     study_id = ["CVD", # ["RX"]
                  "IH"]
@@ -157,8 +161,6 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
             print("Channel: ", CHANNEL)
             with open("/mnt/scratchpad/dataOruc/data/" + study_ID + "/" + str(CHANNEL) + '/CONFIG', 'rb') as fp:
                 config = json.load(fp)
-            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'w') as file:
-                file.write(json.dumps(config))
             # with open('/mnt/scratchpad/dataOruc/data/RX/2/CONFIG', 'r') as file:
             #     str_config = file.read()
             #     str_config = str_config.replace("true", "True") # Fixing boolean value
@@ -169,7 +171,10 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
             samplerate = 256 # dic_samplerate[config["study_id"]]
             chunk_path = '/mnt/scratchpad/dataOruc/data/'+ study_ID + "/" + str(CHANNEL) + '/'
             new_chunk_path = '/mnt/scratchpad/dataOruc/data/pretraining-set/'
-
+            if not os.path.exists(new_chunk_path):
+                # if directory is not present then create it.
+                os.makedirs(new_chunk_path)
+            
             tic = time.time()
             # loop training and test
             
@@ -208,8 +213,12 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
             #                                OUTPUT_name) for n in range(np.shape(seg_chunk)[0])])
             # print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
             for n in range(np.shape(seg_chunk)[0]):
+                # define number of next new chunk
+                new_chunk_list = [f for f in os.listdir(new_chunk_path) if (os.path.isfile(os.path.join(new_chunk_path, f)) and not("patient_id" in f))]
+                new_chunk_list = [int(f[:-4]) for f in new_chunk_list if "npy" in f] # list of numbering of chunks
+                print("Saving new chunk ", len(new_chunk_list), " of study ", study_ID, " of channel ", CHANNEL)
                 load((seg_chunk[n,:,:], 
-                        n, 
+                        len(new_chunk_list), 
                         chunk_path, 
                         chunk_size,
                         INPUT_name,
@@ -217,8 +226,95 @@ def pretraining_preprocess(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_
                         new_chunk_path))
                 print("Sekunden für Batch-Processing", np.round(time.time()-tic,3))
                 tic = time.time()
-            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/OUTPUT_TYPE', 'w') as file:
-                file.write(json.dumps(output_type(OUTPUT_name)))
+    with open('/mnt/scratchpad/dataOruc/data/pretraining-set/OUTPUT_TYPE', 'w') as file:
+        file.write(json.dumps(output_type(OUTPUT_name)))
+    config["segment_count"] = chunk_size * (len(new_chunk_list)+1)
+    with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'w') as file:
+        file.write(json.dumps(config))
+    
+def pretraining_preprocess_Icentia(chunk_size=400, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={'SNR': ["lag 0"], 'Tacho': ["lag 0"], 'symbolsC': ["lag 0"], 'Shannon': ["lag 0"], 'Polvar10': ["lag 0"], 'forbword': ["lag 0"]}):
+    """function for preprocessing huge dataset from Icentia
+    it prepares features of ecg
+    forms them in new chunks and saves them as npy-files or json-files
+
+    This version prepares dataset for pretraining
+    """
+    new_chunk_path = '/mnt/scratchpad/dataOruc/data/pretraining-set/'
+    length_item = int(300*250)
+    data_list = list(OUTPUT_name.keys()) + list(INPUT_name.keys()) # list of mentioned features
+    data_list = tl.unique(data_list)
+    
+    segment_path = '/mnt/scratchpad/dataOruc/data/Icentia11k/'
+    
+    print("Preparing list of segments ...")
+    # Load locally available segments and patients
+    list_segments_path = [] # list of all segments
+    list_patients = []
+    file_dir = os.listdir(segment_path)
+    for file in file_dir:
+        if ".hea" in file: # check if file is 
+            if file[:-4] + ".atr" in file_dir and file[:-4] + ".dat" in file_dir:
+                list_segments_path.append(file[:-4])
+                list_patients.append(file[:6])
+    print("Number of patients: ", len(set(list_patients)))
+    print("Number of segments: ", len(list_segments_path))
+
+    ################################################################# Check how many segments are there
+
+    # loop over segments
+    # collect 400 5min segments and save into chunks
+    
+    # Takes part of load_clean_data
+    # And form it into numpy to feed into feat_to_dic
+    # Need to calculate SNR cause Icentia doesnthas it. You can find a function in train_lib
+    ecg, peaks, BBI = Ird.load_clean_data(list_segments_path, length_item)
+    print(np.shape(ecg))
+    print(np.shape(peaks))
+    print(len(BBI)/chunk_size)
+    ################################################################# Check how many segments we get for each path
+    all_ele = list(range(len(BBI)))
+    for n in range(int(len(BBI)/chunk_size)):
+        chosen_ele = random.sample(all_ele, chunk_size)
+        print(len(chosen_ele))
+        for ele in chosen_ele:
+            all_ele.remove(ele)
+        print(len(chosen_ele))
+    
+        # Prepare data for construct features
+        data_dic = {}
+        for name in data_list:
+            if name in ['ECG', 'SNR']:
+                data_dic['ECG'] = ecg
+            if name == 'Tacho':
+                data_dic['Tacho'] = peaks
+            if name in ["symbolsC", "words", 
+                        "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
+                data_dic[name] = BBI # loads pointer to dataset into variable
+        
+        samplerate = 256
+        data = constr_feat(data_dic, OUTPUT_name, config["segment_length"]*samplerate)
+        
+        data_dic = feat_to_dic(data, data_list)
+
+        X, y_list, out_types = set_items(data_dic, INPUT_name, OUTPUT_name, config["segment_length"]*samplerate)
+        
+        # define number of next new chunk
+        new_chunk_list = [f for f in os.listdir(new_chunk_path) if (os.path.isfile(os.path.join(new_chunk_path, f)) and not("patient_id" in f))]
+        new_chunk_list = [int(f[:-4]) for f in new_chunk_list if "npy" in f] # list of numbering of chunks
+        new_chunk_ID = len(new_chunk_list)
+        
+        print("Saving new chunk ", new_chunk_ID)
+        # save preprocessed and batched input data in chunk as numpy array
+        np.save(new_chunk_path + f"X-{new_chunk_ID}", X, allow_pickle=True)
+        # save preprocessed and batched output data in chunk as list
+        with open(new_chunk_path + f"y-{new_chunk_ID}", 'wb') as fp:
+            pickle.dump(y_list, fp)
+        # print("Sekunden für ein Batch", np.round(time.time()-tic,3))    
+    with open('/mnt/scratchpad/dataOruc/data/pretraining-set/OUTPUT_TYPE', 'w') as file:
+        file.write(json.dumps(output_type(OUTPUT_name)))
+    config["segment_count"] = chunk_size * (len(new_chunk_list)+1)
+    with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'w') as file:
+        file.write(json.dumps(config))  
             
 def load(seg_n):
     """loads batch, preprocess and saves in new chunk
@@ -637,7 +733,8 @@ def load_chunk_to_variable(ToT, out_types):
     # indexes = np.arange(int(config["segment_count"]))
     chunk_path_ = {"Training":'/mnt/scratchpad/dataOruc/data/current-set/', 
                      "Test":'/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
-                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/'}
+                     "Proof":'/mnt/scratchpad/dataOruc/data/current-set/proof/',
+                     "Channel 1":'/mnt/scratchpad/dataOruc/data/RX/processed/'}
     chunk_path = chunk_path_[ToT]
     chunk_list = [f for f in os.listdir(chunk_path) if (os.path.isfile(os.path.join(chunk_path, f)) and not("patient_id" in f))]
     chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
@@ -851,3 +948,105 @@ class DataGenerator(K.utils.Sequence):
     #     X, y_list, out_types = tl.set_items(data_dic, self.INPUT_name, self.OUTPUT_name, self.length_item*256)
 
     #     return X, y_list
+    
+class DataGenerator_60(K.utils.Sequence):
+    """Generates data for Keras of CVP dataset"""
+    def __init__(self, chunk_size, INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, batch_size=32, ToT="Training", shuffle=False): # , shuffle=False
+        "Initialization"
+        self.INPUT_name = INPUT_name
+        self.OUTPUT_name = OUTPUT_name
+        self.data_list = tl.unique(list(OUTPUT_name.keys()) + list(INPUT_name.keys())) # list of mentioned features
+        self.out_types = output_type(OUTPUT_name)
+        with open('/mnt/scratchpad/dataOruc/data/current-set/OUTPUT_TYPE', 'rb') as file:
+            self.output_type_chunks = json.load(file) # contains index of output feature
+        self.batch_size = batch_size
+        self.chunk_size = chunk_size # size of chunks containing preprocessed data
+        if chunk_size % batch_size != 0:
+            print("Error: chunk ", chunk_size," and batch size ", batch_size," must have modulo 0")
+            exit()
+        self.shuffle = shuffle
+        # self.list_IDs = list_IDs
+        # self.data_X = X
+        # self.data_y = y
+        # Loading CONFIG-file
+        if ToT == "pretraining":
+            with open('/mnt/scratchpad/dataOruc/data/pretraining-set/CONFIG', 'rb') as fp:
+                self.config = json.load(fp)
+        else:
+            with open('/mnt/scratchpad/dataOruc/data/current-set/CONFIG', 'rb') as fp:
+                self.config = json.load(fp)
+        self.length_item = int(self.config["segment_length"]) # length of ecg inputs in s
+        # self.indexes = np.arange(int(self.config["segment_count"]))
+        self.ToT = ToT
+        chunk_path_ = {"pretraining": '/mnt/scratchpad/dataOruc/data/pretraining-set/',
+                    "Training": '/mnt/scratchpad/dataOruc/data/current-set/', 
+                    "Test": '/mnt/scratchpad/dataOruc/data/current-set/evaluation/',
+                    "Proof": '/mnt/scratchpad/dataOruc/data/current-set/proof/'}
+        self.chunk_path = chunk_path_[ToT]
+        chunk_list = [f for f in os.listdir(self.chunk_path) if (os.path.isfile(os.path.join(self.chunk_path, f)) and not("patient_id" in f))]
+        chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
+        self.chunk_start = min(chunk_list) # we save lowest as starting point
+        self.chunk_ID = self.chunk_start
+        self.chunk_end = max(chunk_list) # se save highest as ending point
+        self.segment_ID = int(0)
+        # build sequence batch indices
+        self.len = {"pretraining": int(np.floor(self.config["segment_count"]/ self.batch_size)), 
+                    "Training": int(np.floor(self.config["segment_count"]*0.8/ self.batch_size)), 
+                    "Test": int(np.floor(self.config["segment_count"]*0.2/ self.batch_size)),
+                    "Proof": int(np.floor(22000/ self.batch_size))}
+        self.indexes = np.arange(self.len[self.ToT])
+        
+    def __len__(self):
+        'Denotes the number of batches per epoch'
+        # return int(np.floor(len(self.data_X[:,0]) / self.batch_size))
+        return self.len[self.ToT]
+        # if self.ToT == "Training":
+        #     return int(np.floor(self.config["segment_count"]*0.8/self.batch_size))
+        # else:
+        #     return int(np.floor(self.config["segment_count"]*0.2/self.batch_size))
+    
+    def __getitem__(self, idx):
+        'Generate one batch of data'
+        # Generate indexes of the batch
+        index = self.indexes[idx]
+
+        # Find list of IDs
+        # list_IDs_temp = [self.list_IDs[k] for k in indexes]
+
+        # Generate data
+        X, y = self.__data_generation(index)
+        
+        return (X, y)
+    
+    def on_epoch_end(self):
+        'Updates indexes after each epoch'
+        # self.indexes = np.arange(int(self.config["segment_count"]))
+        # self.segment_ID = int(0)
+        # self.chunk_ID = 0
+        if self.shuffle == True:
+            np.random.shuffle(self.indexes)
+    
+    def __data_generation(self, index):
+        """Loads batches from chunks
+
+        Args:
+            index (int): number of batch
+        """
+        chunk_ID = int(np.floor(index//self.chunk_size)) # integer division to find right chunk with batch
+        X_chunk = np.load(self.chunk_path + 'X-' + str(chunk_ID) + '.npy', allow_pickle=True)
+        b_in_c = int(self.chunk_size / self.batch_size) # number of batches in chunk
+        batch = index % b_in_c # modulo to find batch in chunk
+        X = X_chunk[batch*self.batch_size : (batch+1)*self.batch_size,:]
+        with open(self.chunk_path + 'y-' + str(chunk_ID), 'rb') as fp:
+            y_chunk = pickle.load(fp)
+        y = []
+        # for n in range(len(y_chunk)):
+            # y.append(y_chunk[n][batch*self.batch_size : (batch+1)*self.batch_size])
+        for out in self.out_types:
+            n = self.output_type_chunks.index(out)
+            # print(n)
+            if out == "forbword":
+                y.append((y_chunk[n][batch*self.batch_size : (batch+1)*self.batch_size]-0.1)*40/60+0.1)
+            else:
+                y.append(y_chunk[n][batch*self.batch_size : (batch+1)*self.batch_size])
+        return X, y

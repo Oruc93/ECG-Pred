@@ -28,7 +28,7 @@ import keras
 def train(total_epochs=250, 
           INPUT_name={"ECG":["lag 0"]}, OUTPUT_name={"ECG":["lag 0"]}, # , "symbols":["lag 0"], "moving average: ["0.25"]
           NNsize=int(2 ** 4), length_item=int(2**9), Arch="Conv-AE-LSTM-P", dataset="SYNECG", weight_check=False, kernel_size=2,
-          weight_decay=False, batch_size=10, weight_SymbolC=False):
+          weight_decay=False, batch_size=10, weight_SymbolC=False, FW_60=False, FW_weight_loss=False, task_loss_MSE=True):
     """
     Setting up, training and evaluating one neural network with specific configuration
     During this process different metrics are logged in MLFlow and can be accessed by MLFlow UI in the browser
@@ -89,7 +89,9 @@ def train(total_epochs=250,
         elif dataset == "pretraining":
             length_item = 300 # CVP Datensatz fest gelegte Länge
             samplerate = 256
-            amount = 4400 + 4400 + 4400 + 70000 + 78000 + 85000
+            chunk_list = [f for f in os.listdir('/mnt/scratchpad/dataOruc/data/pretraining-set/') if (os.path.isfile(os.path.join('/mnt/scratchpad/dataOruc/data/pretraining-set/', f)) and not("patient_id" in f))]
+            chunk_list = [int(f[2:-4]) for f in chunk_list if "npy" in f] # list of numbering of chunks
+            amount = int(len(chunk_list)*400)
             mlflow.log_param("number of training examples", amount)
             out_types = DGl.output_type(OUTPUT_name)
         else:
@@ -144,6 +146,15 @@ def train(total_epochs=250,
             mlflow.log_param("Architecture", "Conv_Att_E")  # logs type of architecture
             mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
             mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
+        if Arch == "Conv_Att_E_kernel":
+            model, ds_samplerate, latent_dim = tl.setup_Conv_Att_E_kernel((length_item,1), kernel_size, int(samplerate), out_types, weight_check=weight_check)  # Conv Att Encoder
+            mlflow.log_param("Architecture", "Conv_Att_E_kernel")  # logs type of architecture
+            mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
+            mlflow.log_param("depth_of_latent_space", latent_dim)  # number of feature in latent space
+        if Arch == "Conv_Att_E_final":
+            model, ds_samplerate = tl.setup_Conv_Att_E_final((length_item,1), kernel_size, int(samplerate), out_types, FW_weight_loss_=FW_weight_loss)  # Conv Att Encoder
+            mlflow.log_param("Architecture", "Conv_Att_E_final")  # logs type of architecture
+            mlflow.log_param("samperate_in_latent_space", ds_samplerate)  # samplerate after downsampling
 
         # print(np.shape(X)[1:])
         model.summary()
@@ -159,13 +170,18 @@ def train(total_epochs=250,
         else:
             loss_SymbolC = ["Symbols_output", tl.symbols_loss_uniform, 'sparse_categorical_accuracy']
         
+        if task_loss_MSE:
+            loss_task = ["forbword_output", tl.task_loss, 'mean_absolute_percentage_error']
+        else:
+            loss_task = ["forbword_output", tl.task_loss_MAE, 'mean_absolute_percentage_error']
+        
         dic_loss = {
                     "ECG":                  ["ECG_output", tl.pseudo_loss, 'MAE'],
                     "Tacho":                ["Tacho_output", tl.pseudo_loss, 'MAE'],
                     "symbolsC":             loss_SymbolC,
                     "Shannon":              ["Shannon_output", tl.pseudo_loss, 'mean_absolute_percentage_error'], 
                     "Polvar10":             ["Polvar10_output", tl.pseudo_loss, 'mean_absolute_percentage_error'], 
-                    "forbword":             ["forbword_output", tl.task_loss, 'mean_absolute_percentage_error'],
+                    "forbword":             loss_task,
                     "SNR":                  ["SNR_output", tl.pseudo_loss, 'MAE'],
                     "words":                ["Words_output", tl.pseudo_loss, 'MAE'],
                     "parameters":           ["parameter_output", tl.pseudo_loss, 'MAE'],
@@ -213,208 +229,50 @@ def train(total_epochs=250,
                     # callbacks=[escb], # callback must be in list, otherwise mlflow.autolog() breaks
                     epochs=total_epochs)
         elif dataset == "CVP":
-            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="Training")
+            if FW_60:
+                training_generator = DGl.DataGenerator_60(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="Training")
+            else:
+                training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="Training")
             model.fit(x=training_generator,
                         callbacks=[tf.keras.callbacks.TerminateOnNaN(), ca], # callback must be in list, otherwise mlflow.autolog() breaks
                         epochs=total_epochs
                         )
-        else:
-            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="pretraining")
+        elif dataset == "pretraining":
+            if FW_60:
+                training_generator = DGl.DataGenerator_60(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="pretraining")
+            else:
+                training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=batch_size, ToT="pretraining")
             model.fit(x=training_generator,
                         callbacks=[tf.keras.callbacks.TerminateOnNaN(), ca], # callback must be in list, otherwise mlflow.autolog() breaks
                         epochs=total_epochs
                         )
 
-        
-        # # Evaluate trained model
-        # print("\nEvaluating model...")
-        # if dataset != "CVP":
-        #     dic_eval = model.evaluate(X_test, y_test, batch_size=8, return_dict=True)
-        # else:
-        #     training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=10, ToT="Test")
-        #     dic_eval = model.evaluate(x=training_generator, return_dict=True)
-        
-        # # Predict on test set and plot
-        # if dataset != "CVP":
-        #     y_pred = model.predict(X_test, batch_size=16)# int(np.shape(X_test)[0] / 3))
-        # else:
-        #     y_pred = model.predict(x=training_generator)
-        #     X_test, y_test, patient_ID = DGl.load_chunk_to_variable("Test", out_types)
-        
-        # if not(isinstance(y_pred,list)): # check, ob y_pred list ist. Falls mehrere Outputs, dann ja
-        #     y_pred = [y_pred]
-        
-        # # Transform outpur of sparse categorical from 4D time series into 1D time series
-        # for column in range(len(y_pred)): # loop over features
-        #     if "classificationSymbols" in out_types[column]:
-        #             # sparse_pred = np.array([0,1,2,3]) * y_pred[column] # weighted sum of labels
-        #             # sparse_pred = np.sum(sparse_pred, axis=-1)
-        #             # y_pred[column] = sparse_pred
-        #             print(np.shape(y_pred[column]))
-        #             max_pred = np.argmax(y_pred[column], axis=-1)
-        #             print(np.shape(max_pred))
-        #             y_pred[column] = max_pred
-        
-        # example = np.random.randint(len(X_test[:,0]))
-        # # plt.figure(1)
-        # # plt.title("Full plot Truth and Pred of column 0")
-        # # plt.plot(list(range(len(y_test[0][0,:]))), y_test[0][example,:])
-        # # plt.plot(list(range(len(y_pred[0][0,:]))), y_pred[0][example,:])
-        # # if "ECG" in out_types[0]:
-        # #         plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
-        # # plt.legend(["y_test", "y_pred", "X_test"])
-        # # plt.savefig("Full-Plot col 0")
-        # # # while loop for saving image
-        # # k = int(0)
-        # # while k<100:
-        # #     k += 1
-        # #     z = np.random.randint(100000, 999999)
-        # #     path_fig = "./Prediction-Image/" + str(z) + ".png"
-        # #     if not os.path.isfile(path_fig):  # checks if file already exists
-        # #         plt.savefig(path_fig)  # saves plot
-        # #         mlflow.log_artifact(path_fig)  # links plot to MLFlow run
-        # #         break
-        # #     if k == 100:
-        # #         print("Could not find image name. Raise limit of rand.int above")
-        # # plt.close()
-        
-        # for k in range(len(y_pred)):
-        #     plt.figure(k)
-        #     if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
-        #         print(k)
-        #         print(out_types[k])
-        #         print(example)
-        #         print(len(y_test[k]))
-        #         # if len(y_pred) == 1: # if singular output, this fixes indexing
-        #         #         y_test[k] = [y_test[k]]
-        #         if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #             t = y_test[k][example]*4
-        #             p = y_pred[k][example]*4
-        #         elif out_types[k] in ["forbword"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #             t = (y_test[k][example]-0.1)*40
-        #             p = (y_pred[k][example]-0.1)*40
-        #         else:
-        #             t = y_test[k][example]-0.1
-        #             p = y_pred[k][example]-0.1
-        #         plt.title("Truth and Pred of column " + str(k) + " rel. error of " + str(abs((t-p)/t)))
-        #         plt.plot(0, t, marker='o')
-        #         plt.plot(0, p, marker='o')
-        #     else: # ECG, Tachogramm oder Symbole
-        #         plt.title(concat("Zoomed Truth and Pred of column ", str(k)))
-        #         plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
-        #         plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
-        #     if "ECG" in out_types[k]:
-        #         plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
-        #     plt.legend(["y_Test", "Prediction", "X_Test"])
-        #     name = concat("./ZoomPlot-Col-",str(k))
-        #     plt.savefig(name)
-        #     a = 0
-        #     while a<100:
-        #         a += 1
-        #         z = np.random.randint(100000, 999999)
-        #         # path_fig = "./Prediction-Image/" + str(z) + ".png"
-        #         path_fig = "./Prediction-Image/" + str(z)+ "-Zoom-col" + str(a) + ".png"
-        #         if not os.path.isfile(path_fig):  # checks if file already exists
-        #             plt.savefig(path_fig)  # saves plot
-        #             mlflow.log_artifact(path_fig)  # links plot to MLFlow run
-        #             break
-        #         if a == 100:
-        #             print("Could not find image name. Raise limit of rand.int above")
-        #         plt.savefig(path_fig)  # saves plot
-        #         mlflow.log_artifact(path_fig)  # links plot to MLFlow run
-        #     plt.close()
-            
-        # # Plot multiple examples
-        # for l in range(10):
-        #     example = np.random.randint(len(X_test[:,0]))
-        #     for k in range(len(y_pred)):
-        #         # Full visuzilation
-        #         plt.figure(k)
-        #         if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
-        #             # if len(y_test) == 1: # if singular output, this fixes indexing
-        #             #     y_test[k] = [y_test[k]]
-        #             #     y_pred[k] = [y_pred[k]]
-        #             if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = y_test[k][example]*4
-        #                 p = y_pred[k][example]*4
-        #             elif out_types[k] in ["forbword"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = (y_test[k][example]-0.1)*40
-        #                 p = (y_pred[k][example]-0.1)*40
-        #             else:
-        #                 t = y_test[k][example]-0.1
-        #                 p = y_pred[k][example]-0.1
-        #             plt.title("Truth and Pred of column " + str(k) + " of example " + str(l) + " rel. error of " + str(np.round(abs((t-p)/t))[0]))
-        #             plt.plot(0, t, marker='o')
-        #             plt.plot(0, p, marker='o')
-        #         else: # ECG, Tachogramm oder Symbole
-        #             plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(l)))
-        #             plt.plot(list(range(len(y_test[k][0,:]))), y_test[k][example,:])
-        #             plt.plot(list(range(len(y_pred[k][0,:]))), y_pred[k][example,:])
-        #         if "ECG" in out_types[k]:
-        #             plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
-        #         plt.legend(["y_Test", "Prediction", "X_Test"])
-        #         name = "./plots/Plot-Col-" + str(k) + "-example-" + str(l)
-        #         plt.savefig(name)
-        #         plt.close()
-        #         # Zoom visualization
-        #         plt.figure(k)
-        #         if out_types[k] in ["Shannon", "Polvar10", "forbword"]: # Check if column is non-linear parameter
-        #             if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = y_test[k][example]*4
-        #                 p = y_pred[k][example]*4
-        #             elif out_types[k] in ["forbword"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = (y_test[k][example]-0.1)*40
-        #                 p = (y_pred[k][example]-0.1)*40
-        #             else:
-        #                 t = y_test[k][example]-0.1
-        #                 p = y_pred[k][example]-0.1
-        #             plt.title("Truth and Pred of column " + str(k) + " of example " + str(l) + " rel. error of " + str(np.round(abs((y_test[k][example]-y_pred[k][example])/y_test[k][example]), decimals=2)[0]))
-        #             plt.plot(0, t, marker='o')
-        #             plt.plot(0, p, marker='o')
-        #         else: # ECG, Tachogramm oder Symbole
-        #             plt.title(concat("Truth and Pred of column " + str(k), " of example " + str(l)))
-        #             plt.plot(list(range(len(y_test[k][0,-2*samplerate:]))), y_test[k][example,-2*samplerate:])
-        #             plt.plot(list(range(len(y_pred[k][0,-2*samplerate:]))), y_pred[k][example,-2*samplerate:])
-        #         if "ECG" in out_types[k]:
-        #             plt.plot(list(range(len(X_test[0,-2*samplerate:]))), X_test[example,-2*samplerate:])
-        #         plt.legend(["y_Test", "Prediction", "X_Test"])
-        #         name = "./plots/Plot-Col-" + str(k) + "-example-Zoom-" + str(l)
-        #         plt.savefig(name)
-        #         plt.close()
-                
-        #     # plot Input
-        #     plt.figure(2)
-        #     plt.title(concat("Input of example ", str(l)))
-        #     plt.plot(list(range(len(X_test[0,:]))), X_test[example,:])
-        #     name = "./plots/Plot-Input-example-" + str(l)
-        #     plt.savefig(name)
-        #     plt.close()
-            
-        #     # plot parameters of all examples
-        #     for k in range(len(y_pred)):
-        #         if out_types[k] in ["Shannon", "Polvar10", "forbword"]:
-        #             # if len(y_test) == 1: # if singular output, this fixes indexing
-        #             #     y_test[k] = [y_test[k]]
-        #             #     y_pred[k] = [y_pred[k]]
-        #             if out_types[k] in ["Shannon"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = y_test[k][:]*4
-        #                 p = y_pred[k][:]*4
-        #             elif out_types[k] in ["forbword"]: # rescaling prediction. Network is trained on scaled data. Scaled to interval [0,1]
-        #                 t = (y_test[k][:]-0.1)*40
-        #                 p = (y_pred[k][:]-0.1)*40
-        #             else:
-        #                 t = y_test[k][:]-0.1
-        #                 p = y_pred[k][:]-0.1
-        #             re = np.round(np.mean(abs(y_test[k][:]-y_pred[k][:])/abs(y_test[k][:])), decimals=2) # das hier nochmal durch testen
-        #             plt.figure(1)
-        #             plt.title("Parameter " + out_types[k] + " of all examples with rel. error " + str(re)) # rel. error einfügen
-        #             plt.plot(list(range(len(t))), t)
-        #             plt.plot(list(range(len(p))), p)
-        #             plt.legend(["y_Test", "Prediction"])
-        #             name = "./plots/data-Col-" + out_types[k] + "-all-examples"
-        #             plt.savefig(name)
-        #             z = np.random.randint(100000, 999999)
-        #             path_fig = "./Prediction-Image/" + str(z)+ "-data-" + out_types[k] + "-all-examples.png"
-        #             plt.savefig(path_fig)  # saves plot
-        #             mlflow.log_artifact(path_fig)  # links plot to MLFlow run
-        #             plt.close()
+def posttrain(ExpID, runID, INPUT_name, OUTPUT_name):
+    """trains pretrained models with RX dataset channel 2
+
+    Args:
+        runID (_type_): _description_
+    """
+    mlflow.tensorflow.autolog()
+    custom_loss = {"ECG_loss": tl.ECG_loss,
+                    "pseudo_loss": tl.pseudo_loss,
+                    "task_loss": tl.task_loss,
+                    "task_loss_MAE": tl.task_loss_MAE,
+                    "symbols_loss_uniform": tl.symbols_loss_uniform,
+                    "symbols_loss_uniform_weighted": tl.symbols_loss_uniform_weighted} # Custom loss must be declared for loading model
+    
+    with mlflow.start_run(runID): # separate run for each NN size and configuration
+        with mlflow.start_run(nested=True) as child_run:
+            if os.path.exists("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model"):
+                model = tf.keras.models.load_model("mlruns/"+ ExpID +"/"+ runID +"/artifacts/model/data/model", custom_objects=custom_loss)
+            else:
+                print("No model found in Run. Continue with next Run")
+                return
+
+            # Evaluate trained model
+            print("\nTraining model...")
+            training_generator = DGl.DataGenerator(400, INPUT_name=INPUT_name, OUTPUT_name=OUTPUT_name, batch_size=10, ToT="Training")
+            model.fit(x=training_generator,
+                        callbacks=[tf.keras.callbacks.TerminateOnNaN()], # callback must be in list, otherwise mlflow.autolog() breaks
+                        epochs=5
+                        )

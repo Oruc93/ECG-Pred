@@ -28,10 +28,10 @@ formatting for own usage
 feeding into neural network preprocessing"""
 
 # changing current working folder to directory of script
-abspath = os.path.abspath(__file__)
-dname = os.path.dirname(abspath)
-os.chdir(dname)
-local_path = os.getcwd() + '../../data/Icentia11k/'
+# abspath = os.path.abspath(__file__)
+# dname = os.path.dirname(abspath)
+# os.chdir(dname)
+local_path = '/mnt/scratchpad/dataOruc/data/Icentia11k/'
 
 def download(amount):
     """ List all files of interest seperated in training and test
