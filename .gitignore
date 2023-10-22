@@ -13,6 +13,14 @@
 /plots
 GPT-Test.py
 /Images-presentation
+/distributions
+/heatmap
+/hist_ae
+/hist_mape
+/plots_ae
+/plots_mape
+/plots_PvsT
+
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
