@@ -28,10 +28,10 @@ formatting for own usage
 feeding into neural network preprocessing"""
 
 # changing current working folder to directory of script
-abspath = os.path.abspath(__file__)
-dname = os.path.dirname(abspath)
-os.chdir(dname)
-local_path = os.getcwd() + '/data/Icentia11k/'
+# abspath = os.path.abspath(__file__)
+# dname = os.path.dirname(abspath)
+# os.chdir(dname)
+local_path = '/mnt/scratchpad/dataOruc/data/Icentia11k/'
 
 def download(amount):
     """ List all files of interest seperated in training and test
@@ -211,10 +211,10 @@ def load_local(amount):
 
     print("Listing available segments of interest ...")
     file_list_test = []
-    counter = 0
     missing_test = 0 # counter for how many test patients couldnt be found
     for n in range(int(max([1,amount*0.2]))):
         check = True
+        counter = 0
         while check: # loop until unused path found
             file_path = np.random.choice(list_segments) # pull file path of random segment
             list_segments.remove(file_path)
@@ -233,7 +233,9 @@ def load_local(amount):
     return file_list_training, file_list_test
 
 def load_data(list_training, length_item):
-    """Loads ecgs and annotation of selected segments
+    """ This function outdated and not used anymore
+    
+    Loads ecgs and annotation of selected segments
     Segments are downloaded beforehand
     Segments are cut to shorter length for processing efficiency
     
@@ -343,6 +345,7 @@ def load_clean_data(list_training, length_item):
     data_up = np.zeros((len(data[:,0]), int(length_item / ratio))) # empty array to contain ecg upsampled 
     for n in range(np.shape(data)[0]):
         data_up[n,:] = np.interp(list(range(len(data_up[n,:]))), list(range(len(data[n,:]))), data[n,:]) # position r-peaks and interpolate Tachogram. x-axis in samples    
+        data_up[n,:] /= np.max(data_up[n,:]) # normalize ecg to 1
     
     # Upsampling to 256Hz with doubling 6 samples every second randomly with value zero
     peaks = np.array(train_beats)
@@ -389,9 +392,9 @@ def snippet_search(file, length_item):
         beats[beat_sample] = int(3) # timeseries of beats marked as 3 in samples with 250 Hz. Constr_feat 'Tacho' case looks for 3
         # print("Amount of beats: ", len(BBI))
         
-        if len(BBI) >= 0.5*length_item/250:# check if there are normal beats at least every two seconds
+        if len(BBI) >= 0.5*length_item/250:# check if there are normal beats at least every two seconds. Default is 0.5
             # print("Amount of found artifacts: ", len(filter_10))
-            if len(filter_10) < 1: # check how often filter found something
+            if len(filter_10) < 1: # check how often filter found something. Default is 1
                 train_data.append(ecg[offset:offset+500+int(length_item)]/50)
                 train_beats.append(beats)
                 train_BBI.append(BBI)
