@@ -29,7 +29,6 @@ from tensorflow.keras.layers import (
 )
 from keras.models import Model
 import matlab.engine
-import MIT_reader as Mrd
 import Icentia11k_reader as Ird
 import attention_lib
 import multiprocessing as mp
@@ -126,40 +125,6 @@ def memorize(filename, dataset):
     samplerate = file.attrs['samplerate'][0]
     
     return data, samplerate # returns datasets
-
-def memorize_MIT_data(data_list: list, T_or_T: str):
-    """Memorizes ecg data from database MIT-BIH Arrhythmia Database
-    Link: https://physionet.org/content/mitdb/1.0.0/
-    License: Open Data Commons Attribution License v1.0
-    ecgs are from Arrhytmia patients
-    sampled with 360 Hz
-    
-    Returns:
-        data: np.array, np.float16. one-channel ecgs time series
-    """
-    global samplerate
-    samplerate = 256
-    data, peaks, BBI = Mrd.load_data("/mnt/scratchpad/dataOruc/data/MIT/mitdb", samplerate, T_or_T)# , length_item/1024)
-    print(np.shape(data))
-    plt.figure(1)
-    plt.plot(np.linspace(0, len(data[0,0:2000]), num=len(data[0,0:2000])), data[0,0:2000])
-    plt.plot(np.linspace(0, len(peaks[0,0:2000]), num=len(peaks[0,0:2000])), peaks[0,0:2000])
-    plt.savefig("MIT-ECG.png")
-    plt.close()
-    plt.plot()
-    
-    print(data_list)
-    data_dic = {}
-    for name in data_list:
-        if name == 'ECG':
-            data_dic['ECG'] = data/100 # scaling to under order of 10
-        if name == 'Tacho':
-            data_dic['Tacho'] = peaks
-        if name in ["symbolsC", "words", 
-                    "parameters", "parametersTacho", "parametersSymbols", "parametersWords"]: # we construct non-linear parameters from BBI
-            data_dic[name] = BBI  # loads pointer to dataset into variable
-    
-    return data_dic, samplerate
 
 def Icentia_memorize(amount, length_item, data_list):
     """This function loads ecgs and annotations of the downloaded files

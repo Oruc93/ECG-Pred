@@ -313,7 +313,7 @@ for n in range(len(runs)):
       posttrain(ExpID, runID, INPUT_name, OUTPUT_name)"""
 
 # load_test(experiment.experiment_id)
-load_proof(experiment.experiment_id)
+# load_proof(experiment.experiment_id)
 
 experiment = mlflow.set_experiment("Experiment 10 - Final Testing - 80:20:dNC") 
 print("Experiment_id: {}".format(experiment.experiment_id))
@@ -336,7 +336,7 @@ for n in range(len(runs)):
       posttrain(ExpID, runID, INPUT_name, OUTPUT_name)"""
 
 # load_test(experiment.experiment_id)
-load_proof(experiment.experiment_id)
+# load_proof(experiment.experiment_id)
 
 ###################################################################################
 # Eleventh Experiment
@@ -444,7 +444,32 @@ Out_list_ = [{'Tacho': ["lag 0"]},
              {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"]}
             ]
 
-for Out in Out_list_:
+"""for Out in Out_list_:
+            print(Out)
+            train(
+            total_epochs=5, 
+            length_item= 300,
+            OUTPUT_name = Out,
+            Arch = "Conv_Att_E_final",
+            dataset="CVP",
+            kernel_size=0.5,
+            weight_decay=True,
+            weight_SymbolC=True)"""
+
+# load_test(experiment.experiment_id)
+# load_proof(experiment.experiment_id)
+
+#########################################################################################################################
+
+experiment = mlflow.set_experiment("Test") 
+print("Experiment_id: {}".format(experiment.experiment_id))
+
+Out_list_ = [{'Tacho': ["lag 0"]},
+             {'symbolsC': ["lag 0"]},
+             {'Tacho': ["lag 0"], 'symbolsC': ["lag 0"]}
+            ]
+
+for Out in [{'Tacho': ["lag 0"]}]:
             print(Out)
             train(
             total_epochs=5, 
@@ -455,6 +480,3 @@ for Out in Out_list_:
             kernel_size=0.5,
             weight_decay=True,
             weight_SymbolC=True)
-
-load_test(experiment.experiment_id)
-# load_proof(experiment.experiment_id)

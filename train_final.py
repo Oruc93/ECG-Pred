@@ -68,9 +68,6 @@ def train(total_epochs=250,
         if dataset == "SYNECG": # synthetic ECG from Fabians Bachelor thesis
             data, samplerate = tl.memorize("/mnt/scratchpad/dataOruc/data/training.h5", data_list)    
             data_test, samplerate = tl.memorize("/mnt/scratchpad/dataOruc/data/test.h5", data_list)
-        elif dataset == "MIT-BIH": # did not work with LSTM. Never tested with attention
-            data, samplerate = tl.memorize_MIT_data(data_list, 'training')
-            data_test, samplerate = tl.memorize_MIT_data(data_list, 'test')
         elif dataset == "Icentia":
             amount = 100 # 6000 # number of training patients
             data, data_test, samplerate = tl.Icentia_memorize(amount, length_item, data_list)
