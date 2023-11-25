@@ -1,0 +1,29 @@
+<mxfile host="app.diagrams.net" modified="2023-11-25T17:59:52.957Z" agent="Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0" version="22.1.4" etag="RWNEpk1_sdHyNRdId6lU" type="github">
+  <diagram name="Seite-1" id="ACYJw-JVSMHs_9SZNQF8">
+    <mxGraphModel>
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" value="Input Layer" style="whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry width="95" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="3" value="Hidden Layer" style="whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="145" width="110" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="Output Layer" style="whiteSpace=wrap;strokeWidth=2;" vertex="1" parent="1">
+          <mxGeometry x="305" width="108" height="34" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="" style="curved=1;startArrow=none;endArrow=block;exitX=1.0008772197522615;exitY=0.5;entryX=0.000757598876953125;entryY=0.5;" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="6" value="" style="curved=1;startArrow=none;endArrow=block;exitX=1.0024242747913708;exitY=0.5;entryX=0.0024691687689887155;entryY=0.5;" edge="1" parent="1" source="3" target="4">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
